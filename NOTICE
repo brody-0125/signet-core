@@ -1,11 +1,89 @@
-Signet Core
-Copyright 2025 Brody Kim
+Signet
+Copyright 2026 Seokhyeon Kim
 
-This module is part of the Signet project.
-See the root NOTICE file for full attribution and compliance details.
+This product includes software developed by Seokhyeon Kim.
 
-This module implements the 1EdTech Open Badges Specification v3.0.
+================================================================================
+Open Badges v3.0 Specification Compliance Notice
+================================================================================
+
+This project implements the 1EdTech Open Badges Specification v3.0.
+
+Open Badges Specification
+Copyright (c) 2025 1EdTech Consortium, Inc. All Rights Reserved.
 https://www.imsglobal.org/spec/ob/v3p0
+
+Use of this specification to develop products or services is governed by the
+1EdTech Specification Document License:
+https://www.1edtech.org/standards/specification-license
+
+THE SPECIFICATION IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+A PARTICULAR PURPOSE, ACCURACY, COMPLETENESS AND NONINFRINGEMENT OF THIRD PARTY
+RIGHTS. IN NO EVENT SHALL 1EDTECH CONSORTIUM, INC., ITS MEMBERS OR ITS
+CONTRIBUTORS BE LIABLE FOR ANY CLAIM, OR ANY DIRECT, SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE
+SPECIFICATION.
+
+1EdTech is the sole arbitrator of compliance to the Specification and the sole
+grantor of 1EdTech compliant designations. To claim conformance to the Open
+Badges standard, an implementing organization must be a 1EdTech member and
+complete the certification process. See: https://www.1edtech.org/standards/open-badges
 
 This implementation is not certified by 1EdTech. The use of 1EdTech
 specification does not imply endorsement by 1EdTech Consortium, Inc.
+
+================================================================================
+W3C Verifiable Credentials Data Model v2.0
+================================================================================
+
+This project implements the W3C Verifiable Credentials Data Model v2.0
+specification for credential representation and proof mechanisms.
+
+https://www.w3.org/TR/vc-data-model-2.0/
+
+Copyright (c) 2024 World Wide Web Consortium (W3C).
+Licensed under the W3C Software and Document License.
+https://www.w3.org/copyright/software-license-2023/
+
+================================================================================
+Third-Party Dependencies
+================================================================================
+
+This product depends on the following third-party libraries:
+
+- Jackson (https://github.com/FasterXML/jackson)
+  License: Apache License 2.0
+
+- Nimbus JOSE+JWT (https://connect2id.com/products/nimbus-jose-jwt)
+  License: Apache License 2.0
+
+- Google Tink (https://github.com/google/tink)
+  License: Apache License 2.0
+
+- Titanium JSON-LD (https://github.com/filip26/titanium-json-ld)
+  License: Apache License 2.0
+
+- URDNA2015 / rdf-urdna (https://github.com/setl/rdf-urdna)
+  License: Apache License 2.0
+
+- Spring Framework / Spring Boot (https://spring.io/projects/spring-boot)
+  License: Apache License 2.0
+
+- Eclipse RDF4J (https://rdf4j.org/)
+  License: Eclipse Distribution License 1.0 (EDL 1.0)
+  Note: EDL 1.0 is a BSD-style permissive license. It permits use,
+  modification, and redistribution with attribution. This project uses
+  RDF4J as a runtime dependency for RDF model representation and
+  N-Quads serialization.
+
+- Eclipse Parsson (https://github.com/eclipse-ee4j/parsson)
+  License: Eclipse Public License 2.0 (with Secondary License: GPL 2.0
+  with Classpath Exception)
+  Note: EPL 2.0 Section 3 "Secondary Licenses" permits distribution under
+  Apache License 2.0 when the Initial Contributor designates GPL 2.0 with
+  Classpath Exception as a Secondary License. Parsson includes this
+  designation. This project uses Parsson as a Jakarta JSON Processing
+  provider required by Titanium JSON-LD.
