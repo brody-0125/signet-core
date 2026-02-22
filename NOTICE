@@ -1,0 +1,11 @@
+Signet Core
+Copyright 2025 Brody Kim
+
+This module is part of the Signet project.
+See the root NOTICE file for full attribution and compliance details.
+
+This module implements the 1EdTech Open Badges Specification v3.0.
+https://www.imsglobal.org/spec/ob/v3p0
+
+This implementation is not certified by 1EdTech. The use of 1EdTech
+specification does not imply endorsement by 1EdTech Consortium, Inc.
