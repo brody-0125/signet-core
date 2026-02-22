@@ -87,8 +87,8 @@ public class CredentialSigner {
      * Sign a credential with a DataIntegrity proof (eddsa-rdfc-2022 cryptosuite).
      */
     public Map<String, Object> signWithDataIntegrity(Map<String, Object> credential,
-                                                      OctetKeyPair privateKey,
-                                                      String verificationMethodId) {
+                                                     OctetKeyPair privateKey,
+                                                     String verificationMethodId) {
         try {
             String created = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString();
             byte[] combined = buildDataIntegrityHash(credential, "eddsa-rdfc-2022", verificationMethodId, created);
@@ -143,8 +143,8 @@ public class CredentialSigner {
      * Uses ECDSA P-256 (SHA-256) over RDFC-1.0 canonicalized document.
      */
     public Map<String, Object> signWithEcdsaDataIntegrity(Map<String, Object> credential,
-                                                           ECKey privateKey,
-                                                           String verificationMethodId) {
+                                                          ECKey privateKey,
+                                                          String verificationMethodId) {
         try {
             String created = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString();
             byte[] combined = buildDataIntegrityHash(credential, "ecdsa-rdfc-2022", verificationMethodId, created);
@@ -194,9 +194,9 @@ public class CredentialSigner {
     // ── Shared DataIntegrity helpers ────────────────────────────────────────
 
     private byte[] buildDataIntegrityHash(Map<String, Object> credential,
-                                           String cryptosuite,
-                                           String verificationMethodId,
-                                           String created) {
+                                          String cryptosuite,
+                                          String verificationMethodId,
+                                          String created) {
         Map<String, Object> proofConfig = new LinkedHashMap<>();
         proofConfig.put("@context", credential.get("@context"));
         proofConfig.put("type", "DataIntegrityProof");
@@ -218,10 +218,10 @@ public class CredentialSigner {
     }
 
     private Map<String, Object> attachProof(Map<String, Object> credential,
-                                             String cryptosuite,
-                                             String verificationMethodId,
-                                             byte[] signature,
-                                             String created) {
+                                            String cryptosuite,
+                                            String verificationMethodId,
+                                            byte[] signature,
+                                            String created) {
         String proofValue = Multibase.encodeBase58Btc(signature);
 
         Map<String, Object> proof = new LinkedHashMap<>();

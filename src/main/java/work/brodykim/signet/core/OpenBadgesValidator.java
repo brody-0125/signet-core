@@ -38,7 +38,7 @@ public class OpenBadgesValidator {
      * This combines {@link #validate(Map)} structural validation with
      * {@link JsonLdProcessor#validateSafeMode(Map)} to detect undefined terms.
      *
-     * @param document the credential document
+     * @param document        the credential document
      * @param jsonLdProcessor processor for JSON-LD safe mode validation
      * @return validation result including both structural and safe mode errors
      */

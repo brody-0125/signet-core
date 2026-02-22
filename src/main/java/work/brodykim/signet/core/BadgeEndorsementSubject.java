@@ -10,4 +10,5 @@ package work.brodykim.signet.core;
 public record BadgeEndorsementSubject(
         String id,
         String endorsementComment
-) {}
+) {
+}

@@ -29,4 +29,5 @@ public record BadgeResultDescription(
         List<BadgeRubricCriterionLevel> rubricCriterionLevel,
         String valueMax,
         String valueMin
-) {}
+) {
+}

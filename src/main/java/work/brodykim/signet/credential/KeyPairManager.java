@@ -19,9 +19,11 @@ import java.util.UUID;
  */
 public final class KeyPairManager {
 
-    public record SerializedKeyPair(String publicJwk, String privateJwk) {}
+    public record SerializedKeyPair(String publicJwk, String privateJwk) {
+    }
 
-    private KeyPairManager() {}
+    private KeyPairManager() {
+    }
 
     // ── Ed25519 ─────────────────────────────────────────────────────────────
 

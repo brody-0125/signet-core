@@ -11,4 +11,5 @@ package work.brodykim.signet.core;
 public record BadgeIdentifierEntry(
         String identifier,
         String identifierType
-) {}
+) {
+}

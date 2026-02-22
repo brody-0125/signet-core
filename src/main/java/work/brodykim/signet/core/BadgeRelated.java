@@ -12,4 +12,5 @@ public record BadgeRelated(
         String id,
         String version,
         String inLanguage
-) {}
+) {
+}

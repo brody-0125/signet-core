@@ -20,4 +20,5 @@ public record BadgeRubricCriterionLevel(
         String level,
         String points,
         List<BadgeAlignment> alignment
-) {}
+) {
+}

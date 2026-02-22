@@ -9,4 +9,5 @@ package work.brodykim.signet.core;
 public record BadgeGeoCoordinates(
         double latitude,
         double longitude
-) {}
+) {
+}

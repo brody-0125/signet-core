@@ -19,7 +19,8 @@ public final class Multibase {
         }
     }
 
-    private Multibase() {}
+    private Multibase() {
+    }
 
     public static String encodeBase58Btc(byte[] data) {
         return BASE58BTC_PREFIX + encodeBase58(data);

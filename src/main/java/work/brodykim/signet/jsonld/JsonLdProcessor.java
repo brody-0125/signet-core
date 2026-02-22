@@ -212,7 +212,7 @@ public class JsonLdProcessor {
             "@direction", "@import", "@included", "@json", "@none");
 
     private void findUndefinedTerms(JsonObject original, JsonObject compacted,
-                                     String path, List<String> undefinedTerms) {
+                                    String path, List<String> undefinedTerms) {
         for (String key : original.keySet()) {
             if (JSON_LD_KEYWORDS.contains(key)) continue;
 

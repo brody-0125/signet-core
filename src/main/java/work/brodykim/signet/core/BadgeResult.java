@@ -18,4 +18,5 @@ public record BadgeResult(
         String status,
         String achievedLevel,
         List<BadgeAlignment> alignment
-) {}
+) {
+}

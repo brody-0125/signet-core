@@ -54,7 +54,8 @@ public class CredentialBuilder {
      * @param statusListCredential URL of the revocation status list credential
      * @param statusListIndex      index of this credential within the status list
      */
-    public record CredentialStatus(String statusListCredential, String statusListIndex) {}
+    public record CredentialStatus(String statusListCredential, String statusListIndex) {
+    }
 
     // ── Legacy overloaded methods (kept for backwards compatibility) ────────
 

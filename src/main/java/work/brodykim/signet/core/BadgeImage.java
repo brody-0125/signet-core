@@ -11,4 +11,5 @@ package work.brodykim.signet.core;
 public record BadgeImage(
         String id,
         String caption
-) {}
+) {
+}

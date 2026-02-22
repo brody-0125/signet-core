@@ -18,7 +18,8 @@ import java.util.List;
  */
 final class CborEncoder {
 
-    private CborEncoder() {}
+    private CborEncoder() {
+    }
 
     /**
      * Encode an ecdsa-sd-2023 base proof value.
@@ -26,16 +27,16 @@ final class CborEncoder {
      * <p>Format: CBOR tag 0xd9 0x5d 0x02 followed by a CBOR array:
      * {@code [baseSignature, publicKey, hmacKey, signatures, mandatoryPointers]}
      *
-     * @param baseSignature    ECDSA P-256 base signature (64 bytes)
-     * @param publicKey        compressed P-256 public key (33 bytes)
-     * @param hmacKey          HMAC-SHA256 key (32 bytes)
-     * @param signatures       per-message ECDSA signatures (list of 64-byte arrays)
+     * @param baseSignature     ECDSA P-256 base signature (64 bytes)
+     * @param publicKey         compressed P-256 public key (33 bytes)
+     * @param hmacKey           HMAC-SHA256 key (32 bytes)
+     * @param signatures        per-message ECDSA signatures (list of 64-byte arrays)
      * @param mandatoryPointers JSON Pointer strings for mandatory disclosure
      * @return CBOR-encoded byte array including the tag prefix
      */
     static byte[] encodeBaseProofValue(byte[] baseSignature, byte[] publicKey,
-                                        byte[] hmacKey, List<byte[]> signatures,
-                                        List<String> mandatoryPointers) {
+                                       byte[] hmacKey, List<byte[]> signatures,
+                                       List<String> mandatoryPointers) {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
 

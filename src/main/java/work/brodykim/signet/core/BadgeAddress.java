@@ -13,4 +13,5 @@ public record BadgeAddress(
         String postalCode,
         String postOfficeBoxNumber,
         BadgeGeoCoordinates geo
-) {}
+) {
+}

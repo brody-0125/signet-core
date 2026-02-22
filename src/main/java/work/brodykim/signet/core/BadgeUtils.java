@@ -9,7 +9,8 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class BadgeUtils {
 
-    private BadgeUtils() {}
+    private BadgeUtils() {
+    }
 
     /**
      * SHA-256 hash of a string, returned as lowercase hex.

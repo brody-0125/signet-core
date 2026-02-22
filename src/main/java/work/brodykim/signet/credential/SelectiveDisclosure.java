@@ -50,16 +50,16 @@ public class SelectiveDisclosure {
     /**
      * Create a base proof for selective disclosure (ecdsa-sd-2023).
      *
-     * @param credential          unsigned credential document
-     * @param privateKey          issuer's P-256 private key
+     * @param credential           unsigned credential document
+     * @param privateKey           issuer's P-256 private key
      * @param verificationMethodId URI of the verification method
-     * @param mandatoryPointers   JSON Pointer strings for mandatory disclosure paths
+     * @param mandatoryPointers    JSON Pointer strings for mandatory disclosure paths
      * @return signed credential with ecdsa-sd-2023 proof
      */
     public Map<String, Object> createBaseProof(Map<String, Object> credential,
-                                                ECKey privateKey,
-                                                String verificationMethodId,
-                                                List<String> mandatoryPointers) {
+                                               ECKey privateKey,
+                                               String verificationMethodId,
+                                               List<String> mandatoryPointers) {
         try {
             // Step 1: Generate HMAC key
             byte[] hmacKey = new byte[32];
@@ -199,8 +199,8 @@ public class SelectiveDisclosure {
      * correspond to mandatory fields.
      */
     private List<Integer> resolveMandatoryIndexes(List<String> quads,
-                                                    List<String> mandatoryPointers,
-                                                    Map<String, Object> credential) {
+                                                  List<String> mandatoryPointers,
+                                                  Map<String, Object> credential) {
         List<Integer> indexes = new ArrayList<>();
 
         if (mandatoryPointers.isEmpty()) {
