@@ -6,3 +6,4 @@ pluginManagement {
 }
 
 rootProject.name = "signet-core"
+include("examples")
