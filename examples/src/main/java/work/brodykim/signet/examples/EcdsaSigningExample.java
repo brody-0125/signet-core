@@ -8,6 +8,8 @@ import work.brodykim.signet.credential.KeyPairManager;
 import work.brodykim.signet.jsonld.CachedDocumentLoader;
 import work.brodykim.signet.jsonld.JsonLdProcessor;
 
+import work.brodykim.signet.core.OpenBadgesContext;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,8 +63,8 @@ public class EcdsaSigningExample {
     private static Map<String, Object> buildSampleCredential() {
         Map<String, Object> credential = new LinkedHashMap<>();
         credential.put("@context", List.of(
-                "https://www.w3.org/ns/credentials/v2",
-                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
+                OpenBadgesContext.VC_CONTEXT,
+                OpenBadgesContext.OB3_CONTEXT));
         credential.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
         credential.put("id", "https://example.com/credentials/2");
         credential.put("issuer", Map.of(

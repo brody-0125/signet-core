@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import work.brodykim.signet.core.BadgeAchievement;
 import work.brodykim.signet.core.BadgeIssuer;
+import work.brodykim.signet.core.OpenBadgesContext;
 import work.brodykim.signet.core.OpenBadgesValidator;
 import work.brodykim.signet.core.OpenBadgesValidator.ValidationResult;
 import work.brodykim.signet.credential.CredentialBuilder;
@@ -47,8 +48,8 @@ public class ValidationExample {
         System.out.println("--- Invalid: Wrong Context Order ---");
         Map<String, Object> wrongContext = new LinkedHashMap<>();
         wrongContext.put("@context", List.of(
-                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json",
-                "https://www.w3.org/ns/credentials/v2"));  // 순서가 뒤바뀜
+                OpenBadgesContext.OB3_CONTEXT,
+                OpenBadgesContext.VC_CONTEXT));  // 순서가 뒤바뀜
         wrongContext.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
         wrongContext.put("id", "https://example.com/cred/bad");
         wrongContext.put("issuer", Map.of("id", "https://example.com/issuer/1", "type", "Profile", "name", "Test"));
@@ -65,8 +66,8 @@ public class ValidationExample {
         System.out.println("--- Invalid: Missing Required Fields ---");
         Map<String, Object> missingFields = new LinkedHashMap<>();
         missingFields.put("@context", List.of(
-                "https://www.w3.org/ns/credentials/v2",
-                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
+                OpenBadgesContext.VC_CONTEXT,
+                OpenBadgesContext.OB3_CONTEXT));
         missingFields.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
         // id, issuer, validFrom 누락
 
