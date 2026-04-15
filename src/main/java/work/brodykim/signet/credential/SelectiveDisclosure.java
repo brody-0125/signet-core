@@ -12,6 +12,9 @@ import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
+import java.security.spec.ECParameterSpec;
+import java.security.spec.ECPoint;
+import java.security.spec.ECPublicKeySpec;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -249,6 +252,313 @@ public class SelectiveDisclosure {
             }
         } catch (com.nimbusds.jose.JOSEException e) {
             throw new GeneralSecurityException("Failed to extract EC private key", e);
+        }
+    }
+
+    // ── Disclosure proof derivation (holder side) ───────────────────────────
+
+    /**
+     * Derive a disclosure proof from a base proof (ecdsa-sd-2023, holder side).
+     *
+     * <p>The returned credential carries a derived proof whose proofValue
+     * <b>does not contain the HMAC key</b>. This is the central security
+     * property of the W3C ecdsa-sd-2023 derivation step: the issuer's HMAC
+     * key never leaves the holder. If it did, any verifier could replay
+     * {@code HMAC(key, "_:c14nN")} over the small canonical-label space
+     * and reconstruct undisclosed blank-node masking, then dictionary-attack
+     * the per-quad signatures to recover hidden claim values.
+     *
+     * <p><b>Scope (initial implementation):</b> the revealed document equals
+     * the original credential without subsetting. Selective subsetting of
+     * claims at presentation time is left for a follow-up, since it requires
+     * full JSON-Pointer resolution against the expanded document. This
+     * derivation step nonetheless delivers the W3C-mandated security shape:
+     * <ul>
+     *   <li>HMAC key is stripped from the presented proof</li>
+     *   <li>Canonical-label → HMAC-label binding is delivered as an explicit
+     *       {@code labelMap} (the verifier reconstructs the signed canonical
+     *       form without ever holding the HMAC key)</li>
+     *   <li>Mandatory vs. non-mandatory split is preserved via
+     *       {@code mandatoryIndexes}</li>
+     * </ul>
+     *
+     * @param signedCredential credential carrying an ecdsa-sd-2023 base proof
+     *                         (as produced by {@link #createBaseProof})
+     * @return new credential with the proof's {@code proofValue} replaced by
+     *         a derived proof value (CBOR tag {@code 0xd95d01})
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> deriveProof(Map<String, Object> signedCredential) {
+        Object proofObj = signedCredential.get("proof");
+        if (!(proofObj instanceof Map<?, ?> proofMap)) {
+            throw new IllegalArgumentException("Credential is missing a proof object");
+        }
+        Object proofValueObj = proofMap.get("proofValue");
+        if (!(proofValueObj instanceof String proofValue)) {
+            throw new IllegalArgumentException("Proof is missing proofValue");
+        }
+
+        byte[] cbor = Multibase.decodeBase58Btc(proofValue);
+        CborDecoder.BaseProofValue base = CborDecoder.decodeBaseProofValue(cbor);
+
+        // Re-derive the HMAC'd canonical N-Quads from the credential. The
+        // canonicalization is deterministic (URDNA2015 / RDFC-1.0) so this
+        // reproduces the exact quad list the issuer signed over.
+        Map<String, Object> documentWithoutProof = new LinkedHashMap<>(signedCredential);
+        documentWithoutProof.remove("proof");
+
+        byte[] canonicalBytes = jsonLdProcessor.canonicalize(documentWithoutProof);
+        String canonicalNQuads = new String(canonicalBytes, StandardCharsets.UTF_8);
+        String hmacNQuads = replaceBlankNodesWithHmac(canonicalNQuads, base.hmacKey);
+
+        List<String> hmacQuads = splitNonEmpty(hmacNQuads);
+
+        // The mandatoryPointers field is authoritative — the issuer baked
+        // their selection of "mandatory" into the base proof. We re-resolve
+        // here against the same canonical quads the issuer used.
+        List<Integer> mandatoryIdx = resolveMandatoryIndexes(
+                hmacQuads, base.mandatoryPointers, signedCredential);
+
+        // mandatoryIndexes addresses the disclosed quad list (which here is
+        // the entire quad list, since this implementation reveals everything).
+        List<Integer> mandatoryIndexesInDisclosed = new ArrayList<>(mandatoryIdx);
+
+        // Build labelMap: c14n labels (what the verifier sees after
+        // canonicalizing the revealed document) → HMAC labels (what the
+        // issuer actually signed). The verifier rewrites their canonical
+        // quads through this map to reconstruct the signed form, all
+        // without ever holding the HMAC key itself.
+        Map<String, String> labelMap = buildLabelMap(canonicalNQuads, base.hmacKey);
+
+        byte[] derivedBytes = CborEncoder.encodeDerivedProofValue(
+                base.baseSignature, base.publicKey, base.signatures,
+                labelMap, mandatoryIndexesInDisclosed);
+        String derivedProofValue = Multibase.encodeBase58Btc(derivedBytes);
+
+        Map<String, Object> derivedProof = new LinkedHashMap<>((Map<String, Object>) proofMap);
+        derivedProof.put("proofValue", derivedProofValue);
+
+        Map<String, Object> result = new LinkedHashMap<>(signedCredential);
+        result.put("proof", derivedProof);
+        return result;
+    }
+
+    // ── Verifier-side: derived proof verification ───────────────────────────
+
+    /**
+     * Verify a derived (disclosure) proof produced by {@link #deriveProof}.
+     *
+     * <p>The verifier reconstructs the signed canonical form by:
+     * <ol>
+     *   <li>Canonicalizing the revealed document (URDNA2015) → quads with
+     *       sequential canonical blank-node labels (e.g. {@code _:c14n0})</li>
+     *   <li>Rewriting those labels using {@code labelMap} → quads with the
+     *       original HMAC-derived labels the issuer signed over</li>
+     *   <li>Splitting the rewritten quads into mandatory (per
+     *       {@code mandatoryIndexes}) and non-mandatory</li>
+     *   <li>Verifying the base signature over
+     *       {@code SHA256(proofConfig) || SHA256(mandatoryQuads)}</li>
+     *   <li>Verifying each non-mandatory quad's individual signature</li>
+     * </ol>
+     *
+     * <p>Verification never requires the HMAC key — that is the entire point
+     * of stripping it during derivation.
+     */
+    @SuppressWarnings("unchecked")
+    public boolean verifyDerivedProof(Map<String, Object> derivedCredential) {
+        try {
+            Object proofObj = derivedCredential.get("proof");
+            if (!(proofObj instanceof Map<?, ?> proofMap)) return false;
+            Object proofValueObj = proofMap.get("proofValue");
+            if (!(proofValueObj instanceof String proofValue)) return false;
+
+            byte[] cbor = Multibase.decodeBase58Btc(proofValue);
+            CborDecoder.DerivedProofValue derived = CborDecoder.decodeDerivedProofValue(cbor);
+
+            // Reconstruct the canonical form the issuer signed over.
+            Map<String, Object> documentWithoutProof = new LinkedHashMap<>(derivedCredential);
+            documentWithoutProof.remove("proof");
+            byte[] canonicalBytes = jsonLdProcessor.canonicalize(documentWithoutProof);
+            String canonicalNQuads = new String(canonicalBytes, StandardCharsets.UTF_8);
+            String relabelled = applyLabelMap(canonicalNQuads, derived.labelMap);
+            List<String> quadList = splitNonEmpty(relabelled);
+
+            // Split mandatory vs non-mandatory by mandatoryIndexes.
+            List<String> mandatoryQuads = new ArrayList<>();
+            List<String> nonMandatoryQuads = new ArrayList<>();
+            java.util.Set<Integer> mandatorySet = new java.util.HashSet<>(derived.mandatoryIndexes);
+            for (int i = 0; i < quadList.size(); i++) {
+                if (mandatorySet.contains(i)) {
+                    mandatoryQuads.add(quadList.get(i));
+                } else {
+                    nonMandatoryQuads.add(quadList.get(i));
+                }
+            }
+
+            // Recompute proofConfig hash (must match the issuer's input exactly,
+            // hence the proof's `created`/`verificationMethod`/cryptosuite are
+            // pulled directly from the supplied proof object).
+            Map<String, Object> proofConfig = new LinkedHashMap<>();
+            proofConfig.put("@context", derivedCredential.get("@context"));
+            proofConfig.put("type", "DataIntegrityProof");
+            proofConfig.put("cryptosuite", "ecdsa-sd-2023");
+            proofConfig.put("created", proofMap.get("created"));
+            proofConfig.put("verificationMethod", proofMap.get("verificationMethod"));
+            proofConfig.put("proofPurpose", proofMap.get("proofPurpose"));
+            byte[] proofConfigHash = BadgeUtils.sha256(jsonLdProcessor.canonicalize(proofConfig));
+
+            // Recompute mandatoryHash and verify base signature.
+            StringBuilder mandatoryBuilder = new StringBuilder();
+            for (String q : mandatoryQuads) {
+                mandatoryBuilder.append(q).append("\n");
+            }
+            byte[] mandatoryHash = BadgeUtils.sha256(
+                    mandatoryBuilder.toString().getBytes(StandardCharsets.UTF_8));
+
+            byte[] baseInput = new byte[64];
+            System.arraycopy(proofConfigHash, 0, baseInput, 0, 32);
+            System.arraycopy(mandatoryHash, 0, baseInput, 32, 32);
+
+            ECPublicKey ecPubKey = decompressP256PublicKey(derived.publicKey);
+            if (!verifyEcdsaP256(baseInput, derived.baseSignature, ecPubKey)) {
+                return false;
+            }
+
+            // Verify per-quad signatures for the disclosed non-mandatory quads.
+            // The number of supplied signatures must match the disclosed
+            // non-mandatory quads (otherwise the proof was tampered with or
+            // the holder filtered claims this code path doesn't yet support).
+            if (derived.signatures.size() != nonMandatoryQuads.size()) {
+                return false;
+            }
+            for (int i = 0; i < nonMandatoryQuads.size(); i++) {
+                byte[] quadHash = BadgeUtils.sha256(
+                        nonMandatoryQuads.get(i).getBytes(StandardCharsets.UTF_8));
+                if (!verifyEcdsaP256(quadHash, derived.signatures.get(i), ecPubKey)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private static List<String> splitNonEmpty(String nquads) {
+        String[] lines = nquads.split("\n");
+        List<String> out = new ArrayList<>(lines.length);
+        for (String line : lines) {
+            if (!line.isBlank()) {
+                out.add(line);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Build a labelMap: every blank-node label that appears in the canonical
+     * N-Quads is mapped to its HMAC replacement. The verifier uses this to
+     * rewrite their canonicalization output back to the form the issuer signed.
+     */
+    private Map<String, String> buildLabelMap(String canonicalNQuads, byte[] hmacKey) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(hmacKey, "HmacSHA256"));
+            // LinkedHashMap so the on-wire CBOR order is deterministic
+            // (matches first-appearance order in the canonical N-Quads).
+            Map<String, String> map = new LinkedHashMap<>();
+            Matcher matcher = BLANK_NODE_PATTERN.matcher(canonicalNQuads);
+            while (matcher.find()) {
+                String original = matcher.group(1);
+                if (map.containsKey(original)) continue;
+                byte[] hmacBytes = mac.doFinal(original.getBytes(StandardCharsets.UTF_8));
+                StringBuilder hex = new StringBuilder("b");
+                for (int i = 0; i < 16; i++) {
+                    hex.append(String.format("%02x", hmacBytes[i]));
+                }
+                map.put(original, hex.toString());
+            }
+            return map;
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("HMAC computation failed", e);
+        }
+    }
+
+    /**
+     * Apply a labelMap to canonical N-Quads, rewriting each {@code _:label}
+     * to {@code _:<labelMap[label]>}. Labels not present in the map are left
+     * unchanged.
+     */
+    static String applyLabelMap(String nquads, Map<String, String> labelMap) {
+        StringBuffer result = new StringBuffer();
+        Matcher matcher = BLANK_NODE_PATTERN.matcher(nquads);
+        while (matcher.find()) {
+            String original = matcher.group(1);
+            String mapped = labelMap.get(original);
+            String replacement = "_:" + (mapped != null ? mapped : original);
+            matcher.appendReplacement(result, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(result);
+        return result.toString();
+    }
+
+    /**
+     * Decompress a SEC1 compressed (33-byte) P-256 public key into a
+     * {@link ECPublicKey} suitable for {@link Signature#initVerify}.
+     */
+    private static ECPublicKey decompressP256PublicKey(byte[] compressed) throws GeneralSecurityException {
+        if (compressed.length != 33 || (compressed[0] != 0x02 && compressed[0] != 0x03)) {
+            throw new GeneralSecurityException("Invalid SEC1 compressed P-256 public key");
+        }
+        boolean yOdd = compressed[0] == 0x03;
+        java.math.BigInteger x = new java.math.BigInteger(1, java.util.Arrays.copyOfRange(compressed, 1, 33));
+
+        // P-256 curve parameters (SEC2 / FIPS 186-4)
+        java.math.BigInteger p = new java.math.BigInteger(
+                "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", 16);
+        java.math.BigInteger a = new java.math.BigInteger(
+                "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC", 16);
+        java.math.BigInteger b = new java.math.BigInteger(
+                "5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B", 16);
+
+        // y^2 = x^3 + a*x + b  (mod p)
+        java.math.BigInteger ySquared = x.modPow(java.math.BigInteger.valueOf(3), p)
+                .add(a.multiply(x)).add(b).mod(p);
+        // For p ≡ 3 (mod 4), sqrt(z) mod p = z^((p+1)/4) mod p
+        java.math.BigInteger y = ySquared.modPow(
+                p.add(java.math.BigInteger.ONE).shiftRight(2), p);
+        if (y.testBit(0) != yOdd) {
+            y = p.subtract(y);
+        }
+
+        try {
+            java.security.AlgorithmParameters params =
+                    java.security.AlgorithmParameters.getInstance("EC");
+            params.init(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            ECParameterSpec ecSpec = params.getParameterSpec(ECParameterSpec.class);
+            ECPublicKeySpec pubSpec = new ECPublicKeySpec(new ECPoint(x, y), ecSpec);
+            return (ECPublicKey) java.security.KeyFactory.getInstance("EC").generatePublic(pubSpec);
+        } catch (java.security.spec.InvalidParameterSpecException
+                 | java.security.spec.InvalidKeySpecException e) {
+            throw new GeneralSecurityException("Failed to construct P-256 public key", e);
+        }
+    }
+
+    private static boolean verifyEcdsaP256(byte[] data, byte[] signature, ECPublicKey publicKey)
+            throws GeneralSecurityException {
+        try {
+            Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
+            sig.initVerify(publicKey);
+            sig.update(data);
+            return sig.verify(signature);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            byte[] derSig = CredentialSigner.p1363ToDer(signature);
+            Signature sig = Signature.getInstance("SHA256withECDSA");
+            sig.initVerify(publicKey);
+            sig.update(data);
+            return sig.verify(derSig);
         }
     }
 }
