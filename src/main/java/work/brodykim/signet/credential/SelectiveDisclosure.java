@@ -237,19 +237,18 @@ public class SelectiveDisclosure {
             ECPrivateKey ecPrivateKey = privateKey.toECPrivateKey();
             byte[] p1363;
             try {
-                Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
+                Signature sig = Signature.getInstance(CredentialSigner.ALGO_ECDSA_P1363);
                 sig.initSign(ecPrivateKey);
                 sig.update(data);
                 p1363 = sig.sign();
             } catch (java.security.NoSuchAlgorithmException e) {
-                Signature sig = Signature.getInstance("SHA256withECDSA");
+                Signature sig = Signature.getInstance(CredentialSigner.ALGO_ECDSA_DER);
                 sig.initSign(ecPrivateKey);
                 sig.update(data);
                 byte[] derSig = sig.sign();
                 p1363 = CredentialSigner.derToP1363(derSig, CredentialSigner.P256_COMPONENT_LEN);
             }
-            // Normalize to low-S canonical form to prevent signature malleability.
-            return CredentialSigner.normalizeToLowS(p1363, CredentialSigner.P256_N);
+            return CredentialSigner.normalizeToLowS(p1363);
         } catch (com.nimbusds.jose.JOSEException e) {
             throw new GeneralSecurityException("Failed to extract EC private key", e);
         }

@@ -50,6 +50,12 @@ public class CredentialSigner {
     static final BigInteger P256_HALF_N = P256_N.shiftRight(1);
     static final int P256_COMPONENT_LEN = 32;
 
+    // JCA algorithm names. P1363 (raw r||s) is the W3C VC-DI-ECDSA wire format;
+    // the DER path is a fallback for JREs without the P1363 algorithm alias.
+    // Package-private so SelectiveDisclosure can reuse them.
+    static final String ALGO_ECDSA_P1363 = "SHA256withECDSAinP1363Format";
+    static final String ALGO_ECDSA_DER = "SHA256withECDSA";
+
     private final ObjectMapper objectMapper;
     private final JsonLdProcessor jsonLdProcessor;
 
@@ -306,19 +312,18 @@ public class CredentialSigner {
             ECPrivateKey ecPrivateKey = privateKey.toECPrivateKey();
             byte[] p1363;
             try {
-                Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
+                Signature sig = Signature.getInstance(ALGO_ECDSA_P1363);
                 sig.initSign(ecPrivateKey);
                 sig.update(data);
                 p1363 = sig.sign();
             } catch (java.security.NoSuchAlgorithmException e) {
-                // Fallback: use DER format and convert to P1363
-                Signature sig = Signature.getInstance("SHA256withECDSA");
+                Signature sig = Signature.getInstance(ALGO_ECDSA_DER);
                 sig.initSign(ecPrivateKey);
                 sig.update(data);
                 byte[] derSig = sig.sign();
                 p1363 = derToP1363(derSig, P256_COMPONENT_LEN);
             }
-            return normalizeToLowS(p1363, P256_N);
+            return normalizeToLowS(p1363);
         } catch (com.nimbusds.jose.JOSEException e) {
             throw new GeneralSecurityException("Failed to extract EC private key from JWK", e);
         }
@@ -343,14 +348,13 @@ public class CredentialSigner {
         try {
             ECPublicKey ecPublicKey = publicKey.toECPublicKey();
             try {
-                Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
+                Signature sig = Signature.getInstance(ALGO_ECDSA_P1363);
                 sig.initVerify(ecPublicKey);
                 sig.update(data);
                 return sig.verify(signature);
             } catch (java.security.NoSuchAlgorithmException e) {
-                // Fallback: convert P1363 to DER and verify
                 byte[] derSig = p1363ToDer(signature);
-                Signature sig = Signature.getInstance("SHA256withECDSA");
+                Signature sig = Signature.getInstance(ALGO_ECDSA_DER);
                 sig.initVerify(ecPublicKey);
                 sig.update(data);
                 return sig.verify(derSig);
@@ -361,22 +365,20 @@ public class CredentialSigner {
     }
 
     /**
-     * Normalize an IEEE P1363 ECDSA signature to low-S canonical form.
+     * Normalize an IEEE P1363 ECDSA P-256 signature to low-S canonical form.
      * If s &gt; n/2, replaces s with n - s (which is mathematically equivalent
      * as an ECDSA signature). Otherwise returns the input unchanged.
      *
      * <p>Package-private so {@link SelectiveDisclosure} can reuse it.
      */
-    static byte[] normalizeToLowS(byte[] p1363Sig, BigInteger n) {
+    static byte[] normalizeToLowS(byte[] p1363Sig) {
         int half = p1363Sig.length / 2;
         BigInteger s = new BigInteger(1, Arrays.copyOfRange(p1363Sig, half, p1363Sig.length));
-        if (s.compareTo(n.shiftRight(1)) <= 0) {
+        if (s.compareTo(P256_HALF_N) <= 0) {
             return p1363Sig;
         }
-        BigInteger sPrime = n.subtract(s);
-        byte[] sBytes = sPrime.toByteArray();
+        byte[] sBytes = P256_N.subtract(s).toByteArray();
         byte[] result = p1363Sig.clone();
-        // Zero out the s region, then right-align sPrime into it.
         Arrays.fill(result, half, result.length, (byte) 0);
         copyToFixed(sBytes, result, half, half);
         return result;

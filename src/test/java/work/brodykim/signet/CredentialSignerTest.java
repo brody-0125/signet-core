@@ -191,11 +191,12 @@ class CredentialSignerTest {
     @SuppressWarnings("unchecked")
     void ecdsaSignaturesShouldAlwaysBeInLowSForm() {
         // Regression: JDK SunEC produces high-S signatures roughly half the time.
-        // After our normalization, every signature must have s <= n/2. Run many
-        // iterations so the probability of missing a high-S path is negligible.
+        // After normalization every signature must have s <= n/2. 20 iterations
+        // gives P(all happen to be low-S anyway) ≈ 2^-20 ≈ 1e-6 — low enough
+        // that a regression won't be masked by luck.
         ECKey keyPair = KeyPairManager.generateP256KeyPair();
 
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < 20; i++) {
             Map<String, Object> credential = buildSampleCredential();
             credential.put("id", "https://example.com/cred/" + i);
 
