@@ -245,14 +245,20 @@ public class CredentialSigner {
 
     private byte[] signEd25519Raw(byte[] data, OctetKeyPair privateKey) throws GeneralSecurityException {
         byte[] seed = privateKey.getDecodedD();
-        EdECPrivateKeySpec spec = new EdECPrivateKeySpec(NamedParameterSpec.ED25519, seed);
-        KeyFactory kf = KeyFactory.getInstance("Ed25519");
-        PrivateKey pk = kf.generatePrivate(spec);
+        PrivateKey pk = null;
+        try {
+            EdECPrivateKeySpec spec = new EdECPrivateKeySpec(NamedParameterSpec.ED25519, seed);
+            KeyFactory kf = KeyFactory.getInstance("Ed25519");
+            pk = kf.generatePrivate(spec);
 
-        Signature sig = Signature.getInstance("Ed25519");
-        sig.initSign(pk);
-        sig.update(data);
-        return sig.sign();
+            Signature sig = Signature.getInstance("Ed25519");
+            sig.initSign(pk);
+            sig.update(data);
+            return sig.sign();
+        } finally {
+            KeyWipe.zero(seed);
+            KeyWipe.tryDestroy(pk);
+        }
     }
 
     private boolean verifyEd25519Raw(byte[] data, byte[] signature, OctetKeyPair publicKey)
@@ -289,8 +295,9 @@ public class CredentialSigner {
      * The W3C Data Integrity ECDSA spec requires P1363 format, not DER.
      */
     private byte[] signEcdsaP256Raw(byte[] data, ECKey privateKey) throws GeneralSecurityException {
+        ECPrivateKey ecPrivateKey = null;
         try {
-            ECPrivateKey ecPrivateKey = privateKey.toECPrivateKey();
+            ecPrivateKey = privateKey.toECPrivateKey();
             try {
                 Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
                 sig.initSign(ecPrivateKey);
@@ -306,6 +313,8 @@ public class CredentialSigner {
             }
         } catch (com.nimbusds.jose.JOSEException e) {
             throw new GeneralSecurityException("Failed to extract EC private key from JWK", e);
+        } finally {
+            KeyWipe.tryDestroy(ecPrivateKey);
         }
     }
 

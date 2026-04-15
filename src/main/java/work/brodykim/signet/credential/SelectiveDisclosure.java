@@ -60,9 +60,9 @@ public class SelectiveDisclosure {
                                                ECKey privateKey,
                                                String verificationMethodId,
                                                List<String> mandatoryPointers) {
+        // Step 1: Generate HMAC key
+        byte[] hmacKey = new byte[32];
         try {
-            // Step 1: Generate HMAC key
-            byte[] hmacKey = new byte[32];
             SECURE_RANDOM.nextBytes(hmacKey);
 
             // Step 2: Canonicalize the document with HMAC-based blank node labels
@@ -138,7 +138,9 @@ public class SelectiveDisclosure {
             ECPublicKey ecPubKey = privateKey.toECPublicKey();
             byte[] compressedPubKey = KeyPairManager.compressP256PublicKey(ecPubKey);
 
-            // Step 10: Encode proof value as CBOR
+            // Step 10: Encode proof value as CBOR. CborEncoder copies hmacKey
+            // bytes into its output buffer synchronously, so the finally-block
+            // zeroization of hmacKey below does not affect proofValueBytes.
             byte[] proofValueBytes = CborEncoder.encodeBaseProofValue(
                     baseSignature, compressedPubKey, hmacKey,
                     signatures, mandatoryPointers);
@@ -158,6 +160,8 @@ public class SelectiveDisclosure {
             return result;
         } catch (Exception e) {
             throw new IllegalStateException("Failed to create ecdsa-sd-2023 base proof", e);
+        } finally {
+            KeyWipe.zero(hmacKey);
         }
     }
 
@@ -166,9 +170,10 @@ public class SelectiveDisclosure {
      * This ensures deterministic but unpredictable blank node identifiers.
      */
     String replaceBlankNodesWithHmac(String nquads, byte[] hmacKey) {
+        SecretKeySpec keySpec = new SecretKeySpec(hmacKey, "HmacSHA256");
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(hmacKey, "HmacSHA256"));
+            mac.init(keySpec);
 
             StringBuffer result = new StringBuffer();
             Matcher matcher = BLANK_NODE_PATTERN.matcher(nquads);
@@ -187,6 +192,8 @@ public class SelectiveDisclosure {
             return result.toString();
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC computation failed", e);
+        } finally {
+            KeyWipe.tryDestroy(keySpec);
         }
     }
 
@@ -233,8 +240,9 @@ public class SelectiveDisclosure {
     }
 
     private byte[] signEcdsaP256(byte[] data, ECKey privateKey) throws GeneralSecurityException {
+        ECPrivateKey ecPrivateKey = null;
         try {
-            ECPrivateKey ecPrivateKey = privateKey.toECPrivateKey();
+            ecPrivateKey = privateKey.toECPrivateKey();
             try {
                 Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
                 sig.initSign(ecPrivateKey);
@@ -249,6 +257,8 @@ public class SelectiveDisclosure {
             }
         } catch (com.nimbusds.jose.JOSEException e) {
             throw new GeneralSecurityException("Failed to extract EC private key", e);
+        } finally {
+            KeyWipe.tryDestroy(ecPrivateKey);
         }
     }
 }
