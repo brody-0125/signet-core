@@ -1,5 +1,6 @@
 package work.brodykim.signet.credential;
 
+import javax.security.auth.DestroyFailedException;
 import javax.security.auth.Destroyable;
 import java.util.Arrays;
 
@@ -45,9 +46,7 @@ final class KeyWipe {
         }
         try {
             d.destroy();
-        } catch (Exception ignored) {
-            // Many JDK PrivateKey/SecretKeySpec implementations throw
-            // DestroyFailedException by default. Nothing actionable here.
+        } catch (DestroyFailedException ignored) {
         }
     }
 }

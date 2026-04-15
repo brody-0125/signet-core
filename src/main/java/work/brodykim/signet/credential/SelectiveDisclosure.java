@@ -62,8 +62,13 @@ public class SelectiveDisclosure {
                                                List<String> mandatoryPointers) {
         // Step 1: Generate HMAC key
         byte[] hmacKey = new byte[32];
+        ECPrivateKey ecPrivateKey = null;
         try {
             SECURE_RANDOM.nextBytes(hmacKey);
+            // Extract the JCA private key once and reuse it for every signature
+            // below (one base signature plus one per non-mandatory quad).
+            // toECPrivateKey() runs KeyFactory.generatePrivate internally.
+            ecPrivateKey = privateKey.toECPrivateKey();
 
             // Step 2: Canonicalize the document with HMAC-based blank node labels
             Map<String, Object> documentWithoutProof = new LinkedHashMap<>(credential);
@@ -109,7 +114,7 @@ public class SelectiveDisclosure {
             for (int idx : nonMandatoryIndexes) {
                 byte[] quadHash = BadgeUtils.sha256(
                         quadList.get(idx).getBytes(StandardCharsets.UTF_8));
-                byte[] sig = signEcdsaP256(quadHash, privateKey);
+                byte[] sig = signEcdsaP256(quadHash, ecPrivateKey);
                 signatures.add(sig);
             }
 
@@ -132,15 +137,14 @@ public class SelectiveDisclosure {
             byte[] baseInput = new byte[64];
             System.arraycopy(proofConfigHash, 0, baseInput, 0, 32);
             System.arraycopy(mandatoryHash, 0, baseInput, 32, 32);
-            byte[] baseSignature = signEcdsaP256(baseInput, privateKey);
+            byte[] baseSignature = signEcdsaP256(baseInput, ecPrivateKey);
 
             // Step 9: Get compressed public key
             ECPublicKey ecPubKey = privateKey.toECPublicKey();
             byte[] compressedPubKey = KeyPairManager.compressP256PublicKey(ecPubKey);
 
-            // Step 10: Encode proof value as CBOR. CborEncoder copies hmacKey
-            // bytes into its output buffer synchronously, so the finally-block
-            // zeroization of hmacKey below does not affect proofValueBytes.
+            // Step 10: Encode proof value as CBOR.
+            // CborEncoder copies hmacKey synchronously; safe to zero below.
             byte[] proofValueBytes = CborEncoder.encodeBaseProofValue(
                     baseSignature, compressedPubKey, hmacKey,
                     signatures, mandatoryPointers);
@@ -162,6 +166,7 @@ public class SelectiveDisclosure {
             throw new IllegalStateException("Failed to create ecdsa-sd-2023 base proof", e);
         } finally {
             KeyWipe.zero(hmacKey);
+            KeyWipe.tryDestroy(ecPrivateKey);
         }
     }
 
@@ -186,7 +191,6 @@ public class SelectiveDisclosure {
                     hex.append(String.format("%02x", hmacBytes[i]));
                 }
                 matcher.appendReplacement(result, hex.toString());
-                // Re-initialize for next use (Mac is reusable after doFinal)
             }
             matcher.appendTail(result);
             return result.toString();
@@ -239,26 +243,18 @@ public class SelectiveDisclosure {
         return indexes;
     }
 
-    private byte[] signEcdsaP256(byte[] data, ECKey privateKey) throws GeneralSecurityException {
-        ECPrivateKey ecPrivateKey = null;
+    private static byte[] signEcdsaP256(byte[] data, ECPrivateKey ecPrivateKey) throws GeneralSecurityException {
         try {
-            ecPrivateKey = privateKey.toECPrivateKey();
-            try {
-                Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
-                sig.initSign(ecPrivateKey);
-                sig.update(data);
-                return sig.sign();
-            } catch (java.security.NoSuchAlgorithmException e) {
-                Signature sig = Signature.getInstance("SHA256withECDSA");
-                sig.initSign(ecPrivateKey);
-                sig.update(data);
-                byte[] derSig = sig.sign();
-                return CredentialSigner.derToP1363(derSig, 32);
-            }
-        } catch (com.nimbusds.jose.JOSEException e) {
-            throw new GeneralSecurityException("Failed to extract EC private key", e);
-        } finally {
-            KeyWipe.tryDestroy(ecPrivateKey);
+            Signature sig = Signature.getInstance("SHA256withECDSAinP1363Format");
+            sig.initSign(ecPrivateKey);
+            sig.update(data);
+            return sig.sign();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            Signature sig = Signature.getInstance("SHA256withECDSA");
+            sig.initSign(ecPrivateKey);
+            sig.update(data);
+            byte[] derSig = sig.sign();
+            return CredentialSigner.derToP1363(derSig, 32);
         }
     }
 }

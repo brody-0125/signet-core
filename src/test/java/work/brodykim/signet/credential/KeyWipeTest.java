@@ -7,6 +7,7 @@ import javax.security.auth.Destroyable;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class KeyWipeTest {
@@ -39,7 +40,7 @@ class KeyWipeTest {
     void tryDestroySkipsAlreadyDestroyed() {
         RecordingDestroyable d = new RecordingDestroyable(true, false);
         KeyWipe.tryDestroy(d);
-        assertTrue(!d.destroyCalled, "destroy() should not be called when isDestroyed() is true");
+        assertFalse(d.destroyCalled, "destroy() should not be called when isDestroyed() is true");
     }
 
     @Test
