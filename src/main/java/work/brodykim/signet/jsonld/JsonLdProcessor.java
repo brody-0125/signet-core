@@ -28,7 +28,10 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel;
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory;
 
 import java.io.StringWriter;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -266,7 +269,7 @@ public class JsonLdProcessor {
     static JsonObject mapToJsonObject(Map<String, Object> map) {
         JsonObjectBuilder builder = Json.createObjectBuilder();
         for (Map.Entry<String, Object> entry : map.entrySet()) {
-            addValue(builder, entry.getKey(), entry.getValue());
+            addValue(builder, normalizeNfc(entry.getKey()), entry.getValue());
         }
         return builder.build();
     }
@@ -276,21 +279,35 @@ public class JsonLdProcessor {
         if (value == null) {
             builder.addNull(key);
         } else if (value instanceof String s) {
-            builder.add(key, s);
+            builder.add(key, normalizeNfc(s));
         } else if (value instanceof Boolean b) {
             builder.add(key, b);
         } else if (value instanceof Integer i) {
             builder.add(key, i);
         } else if (value instanceof Long l) {
             builder.add(key, l);
+        } else if (value instanceof Short sh) {
+            builder.add(key, sh.intValue());
+        } else if (value instanceof Byte by) {
+            builder.add(key, by.intValue());
         } else if (value instanceof Double d) {
             builder.add(key, d);
+        } else if (value instanceof Float f) {
+            builder.add(key, BigDecimal.valueOf(f.doubleValue()));
+        } else if (value instanceof BigDecimal bd) {
+            builder.add(key, bd);
+        } else if (value instanceof BigInteger bi) {
+            builder.add(key, bi);
         } else if (value instanceof Map<?, ?> nested) {
             builder.add(key, mapToJsonObject((Map<String, Object>) nested));
         } else if (value instanceof List<?> list) {
             builder.add(key, listToJsonArray(list));
         } else {
-            builder.add(key, value.toString());
+            throw new IllegalArgumentException(
+                    "Unsupported JSON-LD value type for key '" + key + "': "
+                            + value.getClass().getName()
+                            + ". Supported: null, String, Boolean, numeric primitives, "
+                            + "BigDecimal, BigInteger, Map, List.");
         }
     }
 
@@ -301,23 +318,57 @@ public class JsonLdProcessor {
             if (item == null) {
                 builder.addNull();
             } else if (item instanceof String s) {
-                builder.add(s);
+                builder.add(normalizeNfc(s));
             } else if (item instanceof Boolean b) {
                 builder.add(b);
             } else if (item instanceof Integer i) {
                 builder.add(i);
             } else if (item instanceof Long l) {
                 builder.add(l);
+            } else if (item instanceof Short sh) {
+                builder.add(sh.intValue());
+            } else if (item instanceof Byte by) {
+                builder.add(by.intValue());
             } else if (item instanceof Double d) {
                 builder.add(d);
+            } else if (item instanceof Float f) {
+                builder.add(BigDecimal.valueOf(f.doubleValue()));
+            } else if (item instanceof BigDecimal bd) {
+                builder.add(bd);
+            } else if (item instanceof BigInteger bi) {
+                builder.add(bi);
             } else if (item instanceof Map<?, ?> nested) {
                 builder.add(mapToJsonObject((Map<String, Object>) nested));
             } else if (item instanceof List<?> nested) {
                 builder.add(listToJsonArray(nested));
             } else {
-                builder.add(item.toString());
+                throw new IllegalArgumentException(
+                        "Unsupported JSON-LD value type in list: "
+                                + item.getClass().getName()
+                                + ". Supported: null, String, Boolean, numeric primitives, "
+                                + "BigDecimal, BigInteger, Map, List.");
             }
         }
         return builder.build();
+    }
+
+    /**
+     * Normalize a string to Unicode NFC before canonicalization.
+     *
+     * <p>RDFC-1.0 assumes input literals are already Unicode-normalized;
+     * however, a VC issuer may emit a literal like {@code "é"} as either a
+     * pre-composed code point (U+00E9) or as a combining sequence
+     * (U+0065 U+0301). Both are semantically identical but produce different
+     * N-Quads and therefore different signature hashes. To keep signing and
+     * verification deterministic regardless of the caller's source encoding,
+     * we apply NFC at the ingress boundary.
+     */
+    static String normalizeNfc(String s) {
+        if (s == null || s.isEmpty()) {
+            return s;
+        }
+        return Normalizer.isNormalized(s, Normalizer.Form.NFC)
+                ? s
+                : Normalizer.normalize(s, Normalizer.Form.NFC);
     }
 }
