@@ -269,87 +269,59 @@ public class JsonLdProcessor {
     static JsonObject mapToJsonObject(Map<String, Object> map) {
         JsonObjectBuilder builder = Json.createObjectBuilder();
         for (Map.Entry<String, Object> entry : map.entrySet()) {
-            addValue(builder, normalizeNfc(entry.getKey()), entry.getValue());
+            builder.add(normalizeNfc(entry.getKey()), toJsonValue(entry.getValue()));
         }
         return builder.build();
     }
 
-    @SuppressWarnings("unchecked")
-    private static void addValue(JsonObjectBuilder builder, String key, Object value) {
-        if (value == null) {
-            builder.addNull(key);
-        } else if (value instanceof String s) {
-            builder.add(key, normalizeNfc(s));
-        } else if (value instanceof Boolean b) {
-            builder.add(key, b);
-        } else if (value instanceof Integer i) {
-            builder.add(key, i);
-        } else if (value instanceof Long l) {
-            builder.add(key, l);
-        } else if (value instanceof Short sh) {
-            builder.add(key, sh.intValue());
-        } else if (value instanceof Byte by) {
-            builder.add(key, by.intValue());
-        } else if (value instanceof Double d) {
-            builder.add(key, d);
-        } else if (value instanceof Float f) {
-            builder.add(key, BigDecimal.valueOf(f.doubleValue()));
-        } else if (value instanceof BigDecimal bd) {
-            builder.add(key, bd);
-        } else if (value instanceof BigInteger bi) {
-            builder.add(key, bi);
-        } else if (value instanceof Map<?, ?> nested) {
-            builder.add(key, mapToJsonObject((Map<String, Object>) nested));
-        } else if (value instanceof List<?> list) {
-            builder.add(key, listToJsonArray(list));
-        } else {
-            throw new IllegalArgumentException(
-                    "Unsupported JSON-LD value type for key '" + key + "': "
-                            + value.getClass().getName()
-                            + ". Supported: null, String, Boolean, numeric primitives, "
-                            + "BigDecimal, BigInteger, Map, List.");
-        }
-    }
-
-    @SuppressWarnings("unchecked")
     private static JsonArray listToJsonArray(List<?> list) {
         JsonArrayBuilder builder = Json.createArrayBuilder();
         for (Object item : list) {
-            if (item == null) {
-                builder.addNull();
-            } else if (item instanceof String s) {
-                builder.add(normalizeNfc(s));
-            } else if (item instanceof Boolean b) {
-                builder.add(b);
-            } else if (item instanceof Integer i) {
-                builder.add(i);
-            } else if (item instanceof Long l) {
-                builder.add(l);
-            } else if (item instanceof Short sh) {
-                builder.add(sh.intValue());
-            } else if (item instanceof Byte by) {
-                builder.add(by.intValue());
-            } else if (item instanceof Double d) {
-                builder.add(d);
-            } else if (item instanceof Float f) {
-                builder.add(BigDecimal.valueOf(f.doubleValue()));
-            } else if (item instanceof BigDecimal bd) {
-                builder.add(bd);
-            } else if (item instanceof BigInteger bi) {
-                builder.add(bi);
-            } else if (item instanceof Map<?, ?> nested) {
-                builder.add(mapToJsonObject((Map<String, Object>) nested));
-            } else if (item instanceof List<?> nested) {
-                builder.add(listToJsonArray(nested));
-            } else {
-                throw new IllegalArgumentException(
-                        "Unsupported JSON-LD value type in list: "
-                                + item.getClass().getName()
-                                + ". Supported: null, String, Boolean, numeric primitives, "
-                                + "BigDecimal, BigInteger, Map, List.");
-            }
+            builder.add(toJsonValue(item));
         }
         return builder.build();
+    }
+
+    /**
+     * Dispatch a Java value to its Jakarta {@link JsonValue} representation.
+     * Strings are NFC-normalized (see {@link #normalizeNfc}); numeric widenings
+     * preserve value (Float is routed through {@link BigDecimal} to avoid the
+     * lossy {@code double} conversion that plain {@code builder.add(double)}
+     * would perform).
+     */
+    @SuppressWarnings("unchecked")
+    private static JsonValue toJsonValue(Object value) {
+        if (value == null) {
+            return JsonValue.NULL;
+        } else if (value instanceof String s) {
+            return Json.createValue(normalizeNfc(s));
+        } else if (value instanceof Boolean b) {
+            return b ? JsonValue.TRUE : JsonValue.FALSE;
+        } else if (value instanceof Integer i) {
+            return Json.createValue(i);
+        } else if (value instanceof Long l) {
+            return Json.createValue(l);
+        } else if (value instanceof Short sh) {
+            return Json.createValue(sh.intValue());
+        } else if (value instanceof Byte by) {
+            return Json.createValue(by.intValue());
+        } else if (value instanceof Double d) {
+            return Json.createValue(d);
+        } else if (value instanceof Float f) {
+            return Json.createValue(BigDecimal.valueOf(f.doubleValue()));
+        } else if (value instanceof BigDecimal bd) {
+            return Json.createValue(bd);
+        } else if (value instanceof BigInteger bi) {
+            return Json.createValue(bi);
+        } else if (value instanceof Map<?, ?> nested) {
+            return mapToJsonObject((Map<String, Object>) nested);
+        } else if (value instanceof List<?> list) {
+            return listToJsonArray(list);
+        }
+        throw new IllegalArgumentException(
+                "Unsupported JSON-LD value type: " + value.getClass().getName()
+                        + ". Supported: null, String, Boolean, numeric primitives, "
+                        + "BigDecimal, BigInteger, Map, List.");
     }
 
     /**

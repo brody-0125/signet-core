@@ -72,34 +72,13 @@ class JsonLdProcessorTest {
 
     @Test
     void shouldProduceSameOutputForNfcAndNfdEquivalentLiterals() {
-        // "café" — NFC composed: c a f U+00E9 (é)
         String nfcName = "caf\u00E9";
-        // "café" — NFD decomposed: c a f e U+0301 (combining acute)
         String nfdName = "cafe\u0301";
-
-        // Sanity check the inputs really differ at the code-point level
         assertNotEquals(nfcName, nfdName,
                 "Test setup error: NFC and NFD strings must differ before normalization");
 
-        Map<String, Object> credNfc = new LinkedHashMap<>();
-        credNfc.put("@context", List.of("https://www.w3.org/ns/credentials/v2",
-                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
-        credNfc.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
-        credNfc.put("id", "https://example.com/cred/unicode");
-        credNfc.put("issuer", Map.of("id", "https://example.com/issuers/1",
-                "type", "Profile", "name", nfcName));
-        credNfc.put("validFrom", "2026-01-01T00:00:00Z");
-        credNfc.put("name", nfcName);
-
-        Map<String, Object> credNfd = new LinkedHashMap<>();
-        credNfd.put("@context", List.of("https://www.w3.org/ns/credentials/v2",
-                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
-        credNfd.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
-        credNfd.put("id", "https://example.com/cred/unicode");
-        credNfd.put("issuer", Map.of("id", "https://example.com/issuers/1",
-                "type", "Profile", "name", nfdName));
-        credNfd.put("validFrom", "2026-01-01T00:00:00Z");
-        credNfd.put("name", nfdName);
+        Map<String, Object> credNfc = buildUnicodeCredential(nfcName);
+        Map<String, Object> credNfd = buildUnicodeCredential(nfdName);
 
         byte[] canonicalNfc = processor.canonicalize(credNfc);
         byte[] canonicalNfd = processor.canonicalize(credNfd);
@@ -111,9 +90,8 @@ class JsonLdProcessorTest {
 
     @Test
     void shouldProduceDeterministicOutputForBlankNodeSubject() {
-        // credentialSubject without @id → Titanium assigns a blank node.
-        // URDNA2015 must relabel those blank nodes in a deterministic,
-        // canonical form (e.g. _:c14n0) regardless of serialization order.
+        // credentialSubject without @id → Titanium assigns a blank node, and
+        // URDNA2015 must relabel it deterministically as _:c14nN.
         Map<String, Object> cred = new LinkedHashMap<>();
         cred.put("@context", List.of("https://www.w3.org/ns/credentials/v2",
                 "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
@@ -139,6 +117,19 @@ class JsonLdProcessorTest {
         String nquads = new String(first);
         assertTrue(nquads.contains("_:c14n"),
                 "Output should contain URDNA2015-relabeled blank nodes (_:c14nN), got: " + nquads);
+    }
+
+    private static Map<String, Object> buildUnicodeCredential(String name) {
+        Map<String, Object> cred = new LinkedHashMap<>();
+        cred.put("@context", List.of("https://www.w3.org/ns/credentials/v2",
+                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
+        cred.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
+        cred.put("id", "https://example.com/cred/unicode");
+        cred.put("issuer", Map.of("id", "https://example.com/issuers/1",
+                "type", "Profile", "name", name));
+        cred.put("validFrom", "2026-01-01T00:00:00Z");
+        cred.put("name", name);
+        return cred;
     }
 
     @Test

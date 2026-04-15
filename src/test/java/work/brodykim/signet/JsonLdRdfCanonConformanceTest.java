@@ -1,6 +1,7 @@
 package work.brodykim.signet;
 
 import com.apicatalog.rdf.RdfDataset;
+import com.apicatalog.rdf.io.error.RdfReaderException;
 import com.apicatalog.rdf.io.nquad.NQuadsReader;
 import com.apicatalog.rdf.io.nquad.NQuadsWriter;
 import io.setl.rdf.normalization.RdfNormalize;
@@ -66,7 +67,7 @@ class JsonLdRdfCanonConformanceTest {
                         () -> runVector(id)));
     }
 
-    private void runVector(String id) throws Exception {
+    private void runVector(String id) throws IOException, RdfReaderException {
         String input = loadResource("/rdf-canon/test" + id + "-in.nq");
         String expected = loadResource("/rdf-canon/test" + id + "-rdfc10.nq");
 
@@ -83,7 +84,7 @@ class JsonLdRdfCanonConformanceTest {
      * Parse N-Quads, canonicalize with URDNA2015, serialize back to N-Quads.
      * Mirrors the tail of {@code JsonLdProcessor#canonicalize} (steps 2 and 3).
      */
-    private static String canonicalize(String nquads) throws Exception {
+    private static String canonicalize(String nquads) throws IOException, RdfReaderException {
         RdfDataset parsed = new NQuadsReader(new StringReader(nquads)).readDataset();
         RdfDataset normalized = RdfNormalize.normalize(parsed);
         StringWriter sw = new StringWriter();
