@@ -3,12 +3,15 @@ package work.brodykim.signet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import work.brodykim.signet.credential.CredentialSigner;
 import work.brodykim.signet.credential.KeyPairManager;
+import work.brodykim.signet.credential.Multibase;
 import work.brodykim.signet.jsonld.CachedDocumentLoader;
 import work.brodykim.signet.jsonld.JsonLdProcessor;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.OctetKeyPair;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -175,6 +178,117 @@ class CredentialSignerTest {
 
         boolean valid = signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK());
         assertFalse(valid, "Should fail ECDSA verification when document is tampered");
+    }
+
+    // ── ECDSA signature malleability (low-S enforcement) regression tests ───
+
+    /** P-256 curve order n. */
+    private static final BigInteger P256_N = new BigInteger(
+            "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16);
+    private static final BigInteger P256_HALF_N = P256_N.shiftRight(1);
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaSignaturesShouldAlwaysBeInLowSForm() {
+        // Regression: JDK SunEC produces high-S signatures roughly half the time.
+        // After our normalization, every signature must have s <= n/2. Run many
+        // iterations so the probability of missing a high-S path is negligible.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+
+        for (int i = 0; i < 50; i++) {
+            Map<String, Object> credential = buildSampleCredential();
+            credential.put("id", "https://example.com/cred/" + i);
+
+            Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                    credential, keyPair, "https://example.com/issuers/1#key-1");
+
+            Map<String, Object> proof = (Map<String, Object>) signed.get("proof");
+            String proofValue = (String) proof.get("proofValue");
+            byte[] sig = Multibase.decodeBase58Btc(proofValue);
+            assertEquals(64, sig.length, "P-256 P1363 signature must be 64 bytes");
+
+            BigInteger s = new BigInteger(1, Arrays.copyOfRange(sig, 32, 64));
+            assertTrue(s.compareTo(P256_HALF_N) <= 0,
+                    "s must be <= n/2 (low-S canonical form) on iteration " + i
+                            + ", got s=" + s.toString(16));
+            assertTrue(s.signum() > 0, "s must be positive");
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaVerificationShouldRejectMalleableHighSVariant() {
+        // Malleability attack: given a valid signature (r, s), compute (r, n-s).
+        // Without low-S enforcement, this would also verify — allowing the same
+        // credential to be represented by two distinct proofValues, breaking
+        // revocation/tracking systems that key off the signature bytes.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                credential, keyPair, "https://example.com/issuers/1#key-1");
+
+        // Sanity: the original signature verifies.
+        assertTrue(signer.verifyEcdsaDataIntegrity(signed, keyPair.toPublicJWK()));
+
+        // Forge the high-S twin by flipping s -> n - s.
+        Map<String, Object> proof = new LinkedHashMap<>((Map<String, Object>) signed.get("proof"));
+        byte[] origSig = Multibase.decodeBase58Btc((String) proof.get("proofValue"));
+        byte[] forged = flipS(origSig, P256_N);
+
+        // Preconditions: r is unchanged, s has actually been flipped to high-S.
+        assertArrayEquals(Arrays.copyOfRange(origSig, 0, 32),
+                Arrays.copyOfRange(forged, 0, 32),
+                "forgery should leave r untouched");
+        BigInteger forgedS = new BigInteger(1, Arrays.copyOfRange(forged, 32, 64));
+        assertTrue(forgedS.compareTo(P256_HALF_N) > 0,
+                "forged signature must be in high-S region to exercise malleability");
+
+        proof.put("proofValue", Multibase.encodeBase58Btc(forged));
+        Map<String, Object> tampered = new LinkedHashMap<>(signed);
+        tampered.put("proof", proof);
+
+        boolean valid = signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK());
+        assertFalse(valid, "Verifier must reject the malleable high-S twin of a valid signature");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaVerificationShouldRejectMalformedSignatureLength() {
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                credential, keyPair, "https://example.com/issuers/1#key-1");
+
+        Map<String, Object> proof = new LinkedHashMap<>((Map<String, Object>) signed.get("proof"));
+        // Truncate the signature to an invalid length.
+        byte[] origSig = Multibase.decodeBase58Btc((String) proof.get("proofValue"));
+        byte[] truncated = Arrays.copyOfRange(origSig, 0, 32);
+        proof.put("proofValue", Multibase.encodeBase58Btc(truncated));
+
+        Map<String, Object> tampered = new LinkedHashMap<>(signed);
+        tampered.put("proof", proof);
+
+        assertFalse(signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK()),
+                "Verifier must reject signatures that are not 64 bytes");
+    }
+
+    /** Flip s to n - s in an IEEE P1363 (r || s) signature, keeping r intact. */
+    private static byte[] flipS(byte[] p1363, BigInteger n) {
+        int half = p1363.length / 2;
+        BigInteger s = new BigInteger(1, Arrays.copyOfRange(p1363, half, p1363.length));
+        BigInteger sPrime = n.subtract(s);
+        byte[] sBytes = sPrime.toByteArray();
+        byte[] out = p1363.clone();
+        Arrays.fill(out, half, out.length, (byte) 0);
+        // Right-align sBytes into the s region, stripping any BigInteger sign byte.
+        if (sBytes.length > half) {
+            System.arraycopy(sBytes, sBytes.length - half, out, half, half);
+        } else {
+            System.arraycopy(sBytes, 0, out, half + (half - sBytes.length), sBytes.length);
+        }
+        return out;
     }
 
     // ── Helper ──────────────────────────────────────────────────────────────
