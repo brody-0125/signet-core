@@ -28,7 +28,10 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel;
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory;
 
 import java.io.StringWriter;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +60,19 @@ public class JsonLdProcessor {
 
     /**
      * Canonicalize a JSON-LD document using RDFC-1.0 (URDNA2015).
+     *
+     * <p><b>Unicode handling — interop note:</b> before RDF conversion, all
+     * string literals and map keys are normalized to Unicode NFC (see
+     * {@link #normalizeNfc}). RDFC-1.0 itself does not mandate NFC, so a
+     * credential signed with this library may produce different canonical
+     * bytes than a strict RDFC-1.0 implementation that preserves the
+     * caller's original Unicode composition. In practice this only matters
+     * if a counterparty signs the same credential with a non-NFC-normalizing
+     * stack and expects byte-identical output; for the W3C VC / Open Badges
+     * 3.0 ecosystem, where credential contents are almost always ASCII and
+     * where the risk of a silent NFC-vs-NFD mismatch between issuer and
+     * verifier is the greater concern, this library errs on the side of
+     * determinism.
      *
      * @param document JSON-LD document as a {@code Map<String, Object>}
      * @return canonical N-Quads as UTF-8 bytes, suitable for hashing
@@ -266,58 +282,82 @@ public class JsonLdProcessor {
     static JsonObject mapToJsonObject(Map<String, Object> map) {
         JsonObjectBuilder builder = Json.createObjectBuilder();
         for (Map.Entry<String, Object> entry : map.entrySet()) {
-            addValue(builder, entry.getKey(), entry.getValue());
+            builder.add(normalizeNfc(entry.getKey()), toJsonValue(entry.getValue()));
         }
         return builder.build();
     }
 
-    @SuppressWarnings("unchecked")
-    private static void addValue(JsonObjectBuilder builder, String key, Object value) {
-        if (value == null) {
-            builder.addNull(key);
-        } else if (value instanceof String s) {
-            builder.add(key, s);
-        } else if (value instanceof Boolean b) {
-            builder.add(key, b);
-        } else if (value instanceof Integer i) {
-            builder.add(key, i);
-        } else if (value instanceof Long l) {
-            builder.add(key, l);
-        } else if (value instanceof Double d) {
-            builder.add(key, d);
-        } else if (value instanceof Map<?, ?> nested) {
-            builder.add(key, mapToJsonObject((Map<String, Object>) nested));
-        } else if (value instanceof List<?> list) {
-            builder.add(key, listToJsonArray(list));
-        } else {
-            builder.add(key, value.toString());
-        }
-    }
-
-    @SuppressWarnings("unchecked")
     private static JsonArray listToJsonArray(List<?> list) {
         JsonArrayBuilder builder = Json.createArrayBuilder();
         for (Object item : list) {
-            if (item == null) {
-                builder.addNull();
-            } else if (item instanceof String s) {
-                builder.add(s);
-            } else if (item instanceof Boolean b) {
-                builder.add(b);
-            } else if (item instanceof Integer i) {
-                builder.add(i);
-            } else if (item instanceof Long l) {
-                builder.add(l);
-            } else if (item instanceof Double d) {
-                builder.add(d);
-            } else if (item instanceof Map<?, ?> nested) {
-                builder.add(mapToJsonObject((Map<String, Object>) nested));
-            } else if (item instanceof List<?> nested) {
-                builder.add(listToJsonArray(nested));
-            } else {
-                builder.add(item.toString());
-            }
+            builder.add(toJsonValue(item));
         }
         return builder.build();
+    }
+
+    /**
+     * Dispatch a Java value to its Jakarta {@link JsonValue} representation.
+     * Strings are NFC-normalized (see {@link #normalizeNfc}).
+     *
+     * <p>{@code Float} is converted via {@code new BigDecimal(Float.toString(f))}
+     * so that the serialized canonical form reflects the {@code float}'s
+     * short decimal representation (e.g. {@code 0.1f} → {@code 0.1}) rather
+     * than the wider {@code double} widening (which would yield
+     * {@code 0.10000000149011612}). {@code Double} is left as-is because
+     * callers have already committed to double precision.
+     */
+    @SuppressWarnings("unchecked")
+    private static JsonValue toJsonValue(Object value) {
+        if (value == null) {
+            return JsonValue.NULL;
+        } else if (value instanceof String s) {
+            return Json.createValue(normalizeNfc(s));
+        } else if (value instanceof Boolean b) {
+            return b ? JsonValue.TRUE : JsonValue.FALSE;
+        } else if (value instanceof Integer i) {
+            return Json.createValue(i);
+        } else if (value instanceof Long l) {
+            return Json.createValue(l);
+        } else if (value instanceof Short sh) {
+            return Json.createValue(sh.intValue());
+        } else if (value instanceof Byte by) {
+            return Json.createValue(by.intValue());
+        } else if (value instanceof Double d) {
+            return Json.createValue(d);
+        } else if (value instanceof Float f) {
+            return Json.createValue(new BigDecimal(Float.toString(f)));
+        } else if (value instanceof BigDecimal bd) {
+            return Json.createValue(bd);
+        } else if (value instanceof BigInteger bi) {
+            return Json.createValue(bi);
+        } else if (value instanceof Map<?, ?> nested) {
+            return mapToJsonObject((Map<String, Object>) nested);
+        } else if (value instanceof List<?> list) {
+            return listToJsonArray(list);
+        }
+        throw new IllegalArgumentException(
+                "Unsupported JSON-LD value type: " + value.getClass().getName()
+                        + ". Supported: null, String, Boolean, numeric primitives, "
+                        + "BigDecimal, BigInteger, Map, List.");
+    }
+
+    /**
+     * Normalize a string to Unicode NFC before canonicalization.
+     *
+     * <p>RDFC-1.0 assumes input literals are already Unicode-normalized;
+     * however, a VC issuer may emit a literal like {@code "é"} as either a
+     * pre-composed code point (U+00E9) or as a combining sequence
+     * (U+0065 U+0301). Both are semantically identical but produce different
+     * N-Quads and therefore different signature hashes. To keep signing and
+     * verification deterministic regardless of the caller's source encoding,
+     * we apply NFC at the ingress boundary.
+     */
+    static String normalizeNfc(String s) {
+        if (s == null || s.isEmpty()) {
+            return s;
+        }
+        return Normalizer.isNormalized(s, Normalizer.Form.NFC)
+                ? s
+                : Normalizer.normalize(s, Normalizer.Form.NFC);
     }
 }

@@ -20,6 +20,22 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>{@code https://www.w3.org/ns/credentials/v2} — W3C VC Data Model 2.0</li>
  *   <li>{@code https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json} — OB 3.0</li>
  * </ul>
+ *
+ * <p><b>Security — signing/verification paths:</b> RDFC-1.0 canonicalization
+ * resolves every {@code @context} URL through this loader, and the resulting
+ * term definitions determine which IRIs appear in the canonical N-Quads. If
+ * a remote loader is injected as a fallback, a network-positioned adversary
+ * (or a compromised host) could alter a context document and thereby change
+ * the signed bytes for the same credential. For that reason:
+ *
+ * <ul>
+ *   <li>Use the no-arg {@link #CachedDocumentLoader()} on the signing and
+ *       verification paths — unknown contexts will fail loudly instead of
+ *       being fetched from the network.</li>
+ *   <li>Only supply a fallback loader for non-cryptographic use cases
+ *       (e.g. schema exploration, debugging), or supply one that pins
+ *       context content by hash.</li>
+ * </ul>
  */
 public class CachedDocumentLoader implements DocumentLoader {
 

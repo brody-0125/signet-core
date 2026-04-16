@@ -71,6 +71,68 @@ class JsonLdProcessorTest {
     }
 
     @Test
+    void shouldProduceSameOutputForNfcAndNfdEquivalentLiterals() {
+        String nfcName = "caf\u00E9";
+        String nfdName = "cafe\u0301";
+        assertNotEquals(nfcName, nfdName,
+                "Test setup error: NFC and NFD strings must differ before normalization");
+
+        Map<String, Object> credNfc = buildUnicodeCredential(nfcName);
+        Map<String, Object> credNfd = buildUnicodeCredential(nfdName);
+
+        byte[] canonicalNfc = processor.canonicalize(credNfc);
+        byte[] canonicalNfd = processor.canonicalize(credNfd);
+
+        assertArrayEquals(canonicalNfc, canonicalNfd,
+                "NFC and NFD forms of the same string must produce identical canonical N-Quads "
+                        + "so that a credential signed with one form verifies under the other");
+    }
+
+    @Test
+    void shouldProduceDeterministicOutputForBlankNodeSubject() {
+        // credentialSubject without @id → Titanium assigns a blank node, and
+        // URDNA2015 must relabel it deterministically as _:c14nN.
+        Map<String, Object> cred = new LinkedHashMap<>();
+        cred.put("@context", List.of("https://www.w3.org/ns/credentials/v2",
+                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
+        cred.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
+        cred.put("id", "https://example.com/cred/blank");
+        cred.put("issuer", Map.of("id", "https://example.com/issuers/1",
+                "type", "Profile", "name", "Test Issuer"));
+        cred.put("validFrom", "2026-01-01T00:00:00Z");
+        cred.put("name", "Blank Node Subject");
+        cred.put("credentialSubject", Map.of(
+                "type", "AchievementSubject",
+                "achievement", Map.of(
+                        "type", "Achievement",
+                        "name", "Achievement without an id",
+                        "criteria", Map.of("narrative", "Do the thing"))));
+
+        byte[] first = processor.canonicalize(cred);
+        byte[] second = processor.canonicalize(cred);
+
+        assertArrayEquals(first, second,
+                "Canonicalization must produce identical output across runs, even with blank nodes");
+
+        String nquads = new String(first);
+        assertTrue(nquads.contains("_:c14n"),
+                "Output should contain URDNA2015-relabeled blank nodes (_:c14nN), got: " + nquads);
+    }
+
+    private static Map<String, Object> buildUnicodeCredential(String name) {
+        Map<String, Object> cred = new LinkedHashMap<>();
+        cred.put("@context", List.of("https://www.w3.org/ns/credentials/v2",
+                "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"));
+        cred.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
+        cred.put("id", "https://example.com/cred/unicode");
+        cred.put("issuer", Map.of("id", "https://example.com/issuers/1",
+                "type", "Profile", "name", name));
+        cred.put("validFrom", "2026-01-01T00:00:00Z");
+        cred.put("name", name);
+        return cred;
+    }
+
+    @Test
     void shouldProduceDifferentOutputForDifferentDocuments() {
         Map<String, Object> cred1 = new LinkedHashMap<>();
         cred1.put("@context", List.of("https://www.w3.org/ns/credentials/v2",
