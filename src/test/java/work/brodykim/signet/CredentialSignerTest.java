@@ -275,6 +275,45 @@ class CredentialSignerTest {
                 "Verifier must reject signatures that are not 64 bytes");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaVerificationShouldRejectOutOfRangeR() {
+        // Locks in the r ∈ [1, n-1] range check. The verifier pre-rejects r == 0
+        // and r >= n before delegating to the underlying ECDSA verifier — without
+        // this, a subsequent implementation change that skipped the range check
+        // would go unnoticed.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                credential, keyPair, "https://example.com/issuers/1#key-1");
+        byte[] origSig = Multibase.decodeBase58Btc(
+                (String) ((Map<String, Object>) signed.get("proof")).get("proofValue"));
+
+        // Forge r = 0 (zero out the first 32 bytes).
+        byte[] zeroR = origSig.clone();
+        Arrays.fill(zeroR, 0, 32, (byte) 0);
+        assertFalse(verifyWithForgedSignature(signed, keyPair, zeroR),
+                "Verifier must reject r == 0");
+
+        // Forge r = n (encode the curve order directly in the r slot).
+        byte[] rEqualsN = origSig.clone();
+        byte[] nBytes = P256_N.toByteArray();
+        // P256_N.toByteArray() may return 33 bytes (leading 0x00 sign byte) since n > 2^255.
+        System.arraycopy(nBytes, nBytes.length - 32, rEqualsN, 0, 32);
+        assertFalse(verifyWithForgedSignature(signed, keyPair, rEqualsN),
+                "Verifier must reject r == n (r must be strictly less than n)");
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean verifyWithForgedSignature(Map<String, Object> signed, ECKey keyPair, byte[] forgedSig) {
+        Map<String, Object> proof = new LinkedHashMap<>((Map<String, Object>) signed.get("proof"));
+        proof.put("proofValue", Multibase.encodeBase58Btc(forgedSig));
+        Map<String, Object> tampered = new LinkedHashMap<>(signed);
+        tampered.put("proof", proof);
+        return signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK());
+    }
+
     /** Flip s to n - s in an IEEE P1363 (r || s) signature, keeping r intact. */
     private static byte[] flipS(byte[] p1363, BigInteger n) {
         int half = p1363.length / 2;
