@@ -20,7 +20,7 @@ This module has **zero Spring dependencies** and can be used in any Java 17+ app
 
 ```kotlin
 dependencies {
-    implementation("work.brodykim:signet-core:0.1.0")
+    implementation("work.brodykim:signet-core:0.2.0")
 }
 ```
 
@@ -28,7 +28,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'work.brodykim:signet-core:0.1.0'
+    implementation 'work.brodykim:signet-core:0.2.0'
 }
 ```
 
@@ -121,7 +121,9 @@ if (!result.valid()) {
 | JWS (VC-JWT) | Ed25519 | `CredentialSigner.signCredential()` |
 | DataIntegrity | eddsa-rdfc-2022 | `CredentialSigner.signWithDataIntegrity()` |
 | DataIntegrity | ecdsa-rdfc-2022 (P-256) | `CredentialSigner.signWithEcdsaDataIntegrity()` |
-| Selective Disclosure | ecdsa-sd-2023 (P-256) | `SelectiveDisclosure.createBaseProof()` |
+| Selective Disclosure (base) | ecdsa-sd-2023 (P-256) | `SelectiveDisclosure.createBaseProof()` |
+| Selective Disclosure (derive) | ecdsa-sd-2023 (P-256) | `SelectiveDisclosure.deriveProof()` |
+| Selective Disclosure (verify) | ecdsa-sd-2023 (P-256) | `SelectiveDisclosure.verifyDerivedProof()` |
 
 ## Supported Key Types
 
@@ -153,6 +155,10 @@ This library implements the following specifications:
 - [RDF Dataset Canonicalization (RDFC-1.0)](https://www.w3.org/TR/rdf-canon/)
 
 > **Note:** This implementation is not certified by 1EdTech. See the [NOTICE](NOTICE) file for full compliance details.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 
