@@ -147,13 +147,14 @@ class EcdsaInternalsTest {
 
             @SuppressWarnings("unchecked")
             Map<String, Object> proof = (Map<String, Object>) signed.get("proof");
-            byte[] cbor = Multibase.decodeBase58Btc((String) proof.get("proofValue"));
+            byte[] cbor = Multibase.decodeBase64UrlNoPad((String) proof.get("proofValue"));
 
             // Lock in the CBOR prefix so a regression in CborEncoder that shifts
             // the signature offset would surface here.
             assertEquals((byte) 0xd9, cbor[0]);
             assertEquals((byte) 0x5d, cbor[1]);
-            assertEquals((byte) 0x02, cbor[2]);
+            // W3C VC-DI-ECDSA §3.5.2: base-proof CBOR tag low byte is 0x00.
+            assertEquals((byte) 0x00, cbor[2]);
             assertEquals((byte) 0x85, cbor[3]);
             assertEquals((byte) 0x58, cbor[4]);
             assertEquals((byte) 0x40, cbor[5]);

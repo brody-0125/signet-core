@@ -82,10 +82,15 @@ public class SelectiveDisclosure {
                                                ECKey privateKey,
                                                String verificationMethodId,
                                                List<String> mandatoryPointers) {
+        // Step 1: Generate HMAC key
+        byte[] hmacKey = new byte[32];
+        ECPrivateKey ecPrivateKey = null;
         try {
-            // Step 1: Generate HMAC key
-            byte[] hmacKey = new byte[32];
             SECURE_RANDOM.nextBytes(hmacKey);
+            // Extract the JCA private key once and reuse it for every signature
+            // below (one base signature plus one per non-mandatory quad).
+            // toECPrivateKey() runs KeyFactory.generatePrivate internally.
+            ecPrivateKey = privateKey.toECPrivateKey();
 
             // Step 2: Canonicalize the document with HMAC-based blank node labels
             Map<String, Object> documentWithoutProof = new LinkedHashMap<>(credential);
@@ -131,7 +136,7 @@ public class SelectiveDisclosure {
             for (int idx : nonMandatoryIndexes) {
                 byte[] quadHash = BadgeUtils.sha256(
                         quadList.get(idx).getBytes(StandardCharsets.UTF_8));
-                byte[] sig = signEcdsaP256(quadHash, privateKey);
+                byte[] sig = signEcdsaP256(quadHash, ecPrivateKey);
                 signatures.add(sig);
             }
 
@@ -154,13 +159,14 @@ public class SelectiveDisclosure {
             byte[] baseInput = new byte[64];
             System.arraycopy(proofConfigHash, 0, baseInput, 0, 32);
             System.arraycopy(mandatoryHash, 0, baseInput, 32, 32);
-            byte[] baseSignature = signEcdsaP256(baseInput, privateKey);
+            byte[] baseSignature = signEcdsaP256(baseInput, ecPrivateKey);
 
             // Step 9: Get compressed public key
             ECPublicKey ecPubKey = privateKey.toECPublicKey();
             byte[] compressedPubKey = KeyPairManager.compressP256PublicKey(ecPubKey);
 
-            // Step 10: Encode proof value as CBOR
+            // Step 10: Encode proof value as CBOR.
+            // CborEncoder copies hmacKey synchronously; safe to zero below.
             byte[] proofValueBytes = CborEncoder.encodeBaseProofValue(
                     baseSignature, compressedPubKey, hmacKey,
                     signatures, mandatoryPointers);
@@ -182,6 +188,9 @@ public class SelectiveDisclosure {
             return result;
         } catch (Exception e) {
             throw new IllegalStateException("Failed to create ecdsa-sd-2023 base proof", e);
+        } finally {
+            KeyWipe.zero(hmacKey);
+            KeyWipe.tryDestroy(ecPrivateKey);
         }
     }
 
@@ -190,9 +199,10 @@ public class SelectiveDisclosure {
      * This ensures deterministic but unpredictable blank node identifiers.
      */
     String replaceBlankNodesWithHmac(String nquads, byte[] hmacKey) {
+        SecretKeySpec keySpec = new SecretKeySpec(hmacKey, "HmacSHA256");
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(hmacKey, "HmacSHA256"));
+            mac.init(keySpec);
 
             StringBuffer result = new StringBuffer();
             Matcher matcher = BLANK_NODE_PATTERN.matcher(nquads);
@@ -205,12 +215,13 @@ public class SelectiveDisclosure {
                     hex.append(String.format("%02x", hmacBytes[i]));
                 }
                 matcher.appendReplacement(result, hex.toString());
-                // Re-initialize for next use (Mac is reusable after doFinal)
             }
             matcher.appendTail(result);
             return result.toString();
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC computation failed", e);
+        } finally {
+            KeyWipe.tryDestroy(keySpec);
         }
     }
 
@@ -256,26 +267,21 @@ public class SelectiveDisclosure {
         return indexes;
     }
 
-    private byte[] signEcdsaP256(byte[] data, ECKey privateKey) throws GeneralSecurityException {
+    private static byte[] signEcdsaP256(byte[] data, ECPrivateKey ecPrivateKey) throws GeneralSecurityException {
+        byte[] p1363;
         try {
-            ECPrivateKey ecPrivateKey = privateKey.toECPrivateKey();
-            byte[] p1363;
-            try {
-                Signature sig = Signature.getInstance(CredentialSigner.ALGO_ECDSA_P1363);
-                sig.initSign(ecPrivateKey);
-                sig.update(data);
-                p1363 = sig.sign();
-            } catch (java.security.NoSuchAlgorithmException e) {
-                Signature sig = Signature.getInstance(CredentialSigner.ALGO_ECDSA_DER);
-                sig.initSign(ecPrivateKey);
-                sig.update(data);
-                byte[] derSig = sig.sign();
-                p1363 = CredentialSigner.derToP1363(derSig, CredentialSigner.P256_COMPONENT_LEN);
-            }
-            return CredentialSigner.normalizeToLowS(p1363);
-        } catch (com.nimbusds.jose.JOSEException e) {
-            throw new GeneralSecurityException("Failed to extract EC private key", e);
+            Signature sig = Signature.getInstance(CredentialSigner.ALGO_ECDSA_P1363);
+            sig.initSign(ecPrivateKey);
+            sig.update(data);
+            p1363 = sig.sign();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            Signature sig = Signature.getInstance(CredentialSigner.ALGO_ECDSA_DER);
+            sig.initSign(ecPrivateKey);
+            sig.update(data);
+            byte[] derSig = sig.sign();
+            p1363 = CredentialSigner.derToP1363(derSig, CredentialSigner.P256_COMPONENT_LEN);
         }
+        return CredentialSigner.normalizeToLowS(p1363);
     }
 
     // ── Disclosure proof derivation (holder side) ───────────────────────────
