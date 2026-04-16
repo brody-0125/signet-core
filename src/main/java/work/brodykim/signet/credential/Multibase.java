@@ -9,6 +9,7 @@ package work.brodykim.signet.credential;
 public final class Multibase {
 
     private static final char BASE58BTC_PREFIX = 'z';
+    private static final char BASE64URL_NOPAD_PREFIX = 'u';
     private static final String BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
     private static final int[] BASE58_INDEXES = new int[128];
 
@@ -31,6 +32,29 @@ public final class Multibase {
             throw new IllegalArgumentException("Not a valid multibase base58btc string (must start with 'z')");
         }
         return decodeBase58(encoded.substring(1));
+    }
+
+    /**
+     * Encode bytes as multibase base64url-no-pad (prefix {@code 'u'}).
+     *
+     * <p>Required by W3C VC-DI-ECDSA §3.5.2 / §3.5.7 for {@code ecdsa-sd-2023}
+     * base and derived proof values — {@code parseBaseProofValue} /
+     * {@code parseDerivedProofValue} explicitly raise an error if the string
+     * does not start with {@code 'u'}.
+     */
+    public static String encodeBase64UrlNoPad(byte[] data) {
+        return BASE64URL_NOPAD_PREFIX + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(data);
+    }
+
+    /**
+     * Decode a multibase base64url-no-pad string (prefix {@code 'u'}).
+     */
+    public static byte[] decodeBase64UrlNoPad(String encoded) {
+        if (encoded == null || encoded.isEmpty() || encoded.charAt(0) != BASE64URL_NOPAD_PREFIX) {
+            throw new IllegalArgumentException(
+                    "Not a valid multibase base64url-no-pad string (must start with 'u')");
+        }
+        return java.util.Base64.getUrlDecoder().decode(encoded.substring(1));
     }
 
     private static String encodeBase58(byte[] input) {

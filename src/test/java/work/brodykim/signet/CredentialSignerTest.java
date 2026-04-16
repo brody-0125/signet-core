@@ -3,12 +3,15 @@ package work.brodykim.signet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import work.brodykim.signet.credential.CredentialSigner;
 import work.brodykim.signet.credential.KeyPairManager;
+import work.brodykim.signet.credential.Multibase;
 import work.brodykim.signet.jsonld.CachedDocumentLoader;
 import work.brodykim.signet.jsonld.JsonLdProcessor;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.OctetKeyPair;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -175,6 +178,147 @@ class CredentialSignerTest {
 
         boolean valid = signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK());
         assertFalse(valid, "Should fail ECDSA verification when document is tampered");
+    }
+
+    // ── ECDSA signature malleability (low-S enforcement) regression tests ───
+
+    /** P-256 curve order n. */
+    private static final BigInteger P256_N = new BigInteger(
+            "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16);
+    private static final BigInteger P256_HALF_N = P256_N.shiftRight(1);
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaSignaturesShouldAlwaysBeInLowSForm() {
+        // Regression: JDK SunEC produces high-S signatures roughly half the time.
+        // After normalization every signature must have s <= n/2. 20 iterations
+        // gives P(all happen to be low-S anyway) ≈ 2^-20 ≈ 1e-6 — low enough
+        // that a regression won't be masked by luck.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+
+        for (int i = 0; i < 20; i++) {
+            Map<String, Object> credential = buildSampleCredential();
+            credential.put("id", "https://example.com/cred/" + i);
+
+            Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                    credential, keyPair, "https://example.com/issuers/1#key-1");
+
+            Map<String, Object> proof = (Map<String, Object>) signed.get("proof");
+            String proofValue = (String) proof.get("proofValue");
+            byte[] sig = Multibase.decodeBase58Btc(proofValue);
+            assertEquals(64, sig.length, "P-256 P1363 signature must be 64 bytes");
+
+            BigInteger s = new BigInteger(1, Arrays.copyOfRange(sig, 32, 64));
+            assertTrue(s.compareTo(P256_HALF_N) <= 0,
+                    "s must be <= n/2 (low-S canonical form) on iteration " + i
+                            + ", got s=" + s.toString(16));
+            assertTrue(s.signum() > 0, "s must be positive");
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaVerificationShouldRejectMalleableHighSVariant() {
+        // Malleability attack: given a valid signature (r, s), compute (r, n-s).
+        // Without low-S enforcement, this would also verify — allowing the same
+        // credential to be represented by two distinct proofValues, breaking
+        // revocation/tracking systems that key off the signature bytes.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                credential, keyPair, "https://example.com/issuers/1#key-1");
+
+        // Sanity: the original signature verifies.
+        assertTrue(signer.verifyEcdsaDataIntegrity(signed, keyPair.toPublicJWK()));
+
+        byte[] origSig = Multibase.decodeBase58Btc(
+                (String) ((Map<String, Object>) signed.get("proof")).get("proofValue"));
+        byte[] forged = flipS(origSig, P256_N);
+
+        // Preconditions: r is unchanged, s has actually been flipped to high-S.
+        assertArrayEquals(Arrays.copyOfRange(origSig, 0, 32),
+                Arrays.copyOfRange(forged, 0, 32),
+                "forgery should leave r untouched");
+        BigInteger forgedS = new BigInteger(1, Arrays.copyOfRange(forged, 32, 64));
+        assertTrue(forgedS.compareTo(P256_HALF_N) > 0,
+                "forged signature must be in high-S region to exercise malleability");
+
+        assertFalse(verifyWithForgedSignature(signed, keyPair, forged),
+                "Verifier must reject the malleable high-S twin of a valid signature");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaVerificationShouldRejectMalformedSignatureLength() {
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                credential, keyPair, "https://example.com/issuers/1#key-1");
+
+        byte[] origSig = Multibase.decodeBase58Btc(
+                (String) ((Map<String, Object>) signed.get("proof")).get("proofValue"));
+        byte[] truncated = Arrays.copyOfRange(origSig, 0, 32);
+
+        assertFalse(verifyWithForgedSignature(signed, keyPair, truncated),
+                "Verifier must reject signatures that are not 64 bytes");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ecdsaVerificationShouldRejectOutOfRangeR() {
+        // Locks in the r ∈ [1, n-1] range check. The verifier pre-rejects r == 0
+        // and r >= n before delegating to the underlying ECDSA verifier — without
+        // this, a subsequent implementation change that skipped the range check
+        // would go unnoticed.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
+                credential, keyPair, "https://example.com/issuers/1#key-1");
+        byte[] origSig = Multibase.decodeBase58Btc(
+                (String) ((Map<String, Object>) signed.get("proof")).get("proofValue"));
+
+        // Forge r = 0 (zero out the first 32 bytes).
+        byte[] zeroR = origSig.clone();
+        Arrays.fill(zeroR, 0, 32, (byte) 0);
+        assertFalse(verifyWithForgedSignature(signed, keyPair, zeroR),
+                "Verifier must reject r == 0");
+
+        // Forge r = n (encode the curve order directly in the r slot).
+        byte[] rEqualsN = origSig.clone();
+        byte[] nBytes = P256_N.toByteArray();
+        // P256_N.toByteArray() may return 33 bytes (leading 0x00 sign byte) since n > 2^255.
+        System.arraycopy(nBytes, nBytes.length - 32, rEqualsN, 0, 32);
+        assertFalse(verifyWithForgedSignature(signed, keyPair, rEqualsN),
+                "Verifier must reject r == n (r must be strictly less than n)");
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean verifyWithForgedSignature(Map<String, Object> signed, ECKey keyPair, byte[] forgedSig) {
+        Map<String, Object> proof = new LinkedHashMap<>((Map<String, Object>) signed.get("proof"));
+        proof.put("proofValue", Multibase.encodeBase58Btc(forgedSig));
+        Map<String, Object> tampered = new LinkedHashMap<>(signed);
+        tampered.put("proof", proof);
+        return signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK());
+    }
+
+    /** Flip s to n - s in an IEEE P1363 (r || s) signature, keeping r intact. */
+    private static byte[] flipS(byte[] p1363, BigInteger n) {
+        int half = p1363.length / 2;
+        BigInteger s = new BigInteger(1, Arrays.copyOfRange(p1363, half, p1363.length));
+        BigInteger sPrime = n.subtract(s);
+        byte[] sBytes = sPrime.toByteArray();
+        byte[] out = p1363.clone();
+        Arrays.fill(out, half, out.length, (byte) 0);
+        // Right-align sBytes into the s region, stripping any BigInteger sign byte.
+        if (sBytes.length > half) {
+            System.arraycopy(sBytes, sBytes.length - half, out, half, half);
+        } else {
+            System.arraycopy(sBytes, 0, out, half + (half - sBytes.length), sBytes.length);
+        }
+        return out;
     }
 
     // ── Helper ──────────────────────────────────────────────────────────────
