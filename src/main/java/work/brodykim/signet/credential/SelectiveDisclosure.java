@@ -16,9 +16,12 @@ import java.security.spec.ECParameterSpec;
 import java.security.spec.ECPoint;
 import java.security.spec.ECPublicKeySpec;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,6 +46,22 @@ public class SelectiveDisclosure {
 
     private static final Pattern BLANK_NODE_PATTERN = Pattern.compile("_:([^ ]+)");
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final String CRYPTOSUITE_ECDSA_SD_2023 = "ecdsa-sd-2023";
+
+    /** Cached P-256 curve parameters — cheap to reuse, expensive to rebuild. */
+    private static final ECParameterSpec P256_SPEC;
+
+    static {
+        try {
+            java.security.AlgorithmParameters params =
+                    java.security.AlgorithmParameters.getInstance("EC");
+            params.init(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            P256_SPEC = params.getParameterSpec(ECParameterSpec.class);
+        } catch (java.security.NoSuchAlgorithmException
+                 | java.security.spec.InvalidParameterSpecException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     private final JsonLdProcessor jsonLdProcessor;
 
@@ -303,38 +322,33 @@ public class SelectiveDisclosure {
         byte[] cbor = Multibase.decodeBase64UrlNoPad(proofValue);
         CborDecoder.BaseProofValue base = CborDecoder.decodeBaseProofValue(cbor);
 
-        // Re-derive the HMAC'd canonical N-Quads from the credential. The
-        // canonicalization is deterministic (URDNA2015 / RDFC-1.0) so this
-        // reproduces the exact quad list the issuer signed over.
+        // Reproduce the issuer's canonical quad list. URDNA2015 is
+        // deterministic, so canonicalizing the same document yields the same
+        // ordered quads — we only need their structure (not HMAC'd labels)
+        // because resolveMandatoryIndexes matches predicate IRIs, which are
+        // unaffected by blank-node relabelling.
         Map<String, Object> documentWithoutProof = new LinkedHashMap<>(signedCredential);
         documentWithoutProof.remove("proof");
 
         byte[] canonicalBytes = jsonLdProcessor.canonicalize(documentWithoutProof);
         String canonicalNQuads = new String(canonicalBytes, StandardCharsets.UTF_8);
-        String hmacNQuads = replaceBlankNodesWithHmac(canonicalNQuads, base.hmacKey);
+        List<String> canonicalQuads = splitNonEmpty(canonicalNQuads);
 
-        List<String> hmacQuads = splitNonEmpty(hmacNQuads);
+        // mandatoryPointers is authoritative — the issuer baked their
+        // mandatory selection into the base proof. This implementation
+        // reveals all quads, so mandatoryIndexes indexes directly into
+        // the full canonical list.
+        List<Integer> mandatoryIndexes = resolveMandatoryIndexes(
+                canonicalQuads, base.mandatoryPointers, signedCredential);
 
-        // The mandatoryPointers field is authoritative — the issuer baked
-        // their selection of "mandatory" into the base proof. We re-resolve
-        // here against the same canonical quads the issuer used.
-        List<Integer> mandatoryIdx = resolveMandatoryIndexes(
-                hmacQuads, base.mandatoryPointers, signedCredential);
-
-        // mandatoryIndexes addresses the disclosed quad list (which here is
-        // the entire quad list, since this implementation reveals everything).
-        List<Integer> mandatoryIndexesInDisclosed = new ArrayList<>(mandatoryIdx);
-
-        // Build labelMap: c14n labels (what the verifier sees after
-        // canonicalizing the revealed document) → HMAC labels (what the
-        // issuer actually signed). The verifier rewrites their canonical
-        // quads through this map to reconstruct the signed form, all
-        // without ever holding the HMAC key itself.
+        // labelMap: verifier's canonical labels → issuer's HMAC labels.
+        // Delivered in the derived proof so the verifier can reconstruct
+        // the signed canonical form without ever holding the HMAC key.
         Map<String, String> labelMap = buildLabelMap(canonicalNQuads, base.hmacKey);
 
         byte[] derivedBytes = CborEncoder.encodeDerivedProofValue(
                 base.baseSignature, base.publicKey, base.signatures,
-                labelMap, mandatoryIndexesInDisclosed);
+                labelMap, mandatoryIndexes);
         // W3C VC-DI-ECDSA §3.5.7: derived proofValue also uses multibase-
         // base64url-no-pad ('u' prefix); parseDerivedProofValue rejects others.
         String derivedProofValue = Multibase.encodeBase64UrlNoPad(derivedBytes);
@@ -397,7 +411,7 @@ public class SelectiveDisclosure {
             // defined for ecdsa-sd-2023. A proof carrying a different suite
             // (e.g. ecdsa-rdfc-2022) would cause a misleading CBOR decode
             // failure downstream; fail fast with a clean `false` instead.
-            if (!"ecdsa-sd-2023".equals(proofMap.get("cryptosuite"))) return false;
+            if (!CRYPTOSUITE_ECDSA_SD_2023.equals(proofMap.get("cryptosuite"))) return false;
             Object proofValueObj = proofMap.get("proofValue");
             if (!(proofValueObj instanceof String proofValue)) return false;
 
@@ -412,19 +426,14 @@ public class SelectiveDisclosure {
             String relabelled = applyLabelMap(canonicalNQuads, derived.labelMap);
             List<String> quadList = splitNonEmpty(relabelled);
 
-            // Split mandatory vs non-mandatory by mandatoryIndexes. Every
-            // index MUST refer to a quad that actually exists in the disclosed
-            // set; otherwise the proof is structurally invalid. Silently
-            // ignoring out-of-range indexes would still cause verification to
-            // fail downstream (mandatory hash mismatch), but an explicit
-            // bounds check gives a cleaner failure and matches the intent of
-            // parseDerivedProofValue (W3C VC-DI-ECDSA §3.5.8).
-            for (Integer idx : derived.mandatoryIndexes) {
-                if (idx == null || idx < 0 || idx >= quadList.size()) return false;
+            // Bounds-check per W3C VC-DI-ECDSA §3.5.8: every mandatoryIndex
+            // must address a quad in the disclosed list.
+            for (int idx : derived.mandatoryIndexes) {
+                if (idx < 0 || idx >= quadList.size()) return false;
             }
             List<String> mandatoryQuads = new ArrayList<>();
             List<String> nonMandatoryQuads = new ArrayList<>();
-            java.util.Set<Integer> mandatorySet = new java.util.HashSet<>(derived.mandatoryIndexes);
+            Set<Integer> mandatorySet = new HashSet<>(derived.mandatoryIndexes);
             for (int i = 0; i < quadList.size(); i++) {
                 if (mandatorySet.contains(i)) {
                     mandatoryQuads.add(quadList.get(i));
@@ -439,7 +448,7 @@ public class SelectiveDisclosure {
             Map<String, Object> proofConfig = new LinkedHashMap<>();
             proofConfig.put("@context", derivedCredential.get("@context"));
             proofConfig.put("type", "DataIntegrityProof");
-            proofConfig.put("cryptosuite", "ecdsa-sd-2023");
+            proofConfig.put("cryptosuite", CRYPTOSUITE_ECDSA_SD_2023);
             proofConfig.put("created", proofMap.get("created"));
             proofConfig.put("verificationMethod", proofMap.get("verificationMethod"));
             proofConfig.put("proofPurpose", proofMap.get("proofPurpose"));
@@ -507,16 +516,14 @@ public class SelectiveDisclosure {
             // LinkedHashMap so the on-wire CBOR order is deterministic
             // (matches first-appearance order in the canonical N-Quads).
             Map<String, String> map = new LinkedHashMap<>();
+            HexFormat hex = HexFormat.of();
             Matcher matcher = BLANK_NODE_PATTERN.matcher(canonicalNQuads);
             while (matcher.find()) {
                 String original = matcher.group(1);
                 if (map.containsKey(original)) continue;
                 byte[] hmacBytes = mac.doFinal(original.getBytes(StandardCharsets.UTF_8));
-                StringBuilder hex = new StringBuilder("b");
-                for (int i = 0; i < 16; i++) {
-                    hex.append(String.format("%02x", hmacBytes[i]));
-                }
-                map.put(original, hex.toString());
+                // Truncate to 16 bytes to match replaceBlankNodesWithHmac's format.
+                map.put(original, "b" + hex.formatHex(hmacBytes, 0, 16));
             }
             return map;
         } catch (GeneralSecurityException e) {
@@ -572,14 +579,9 @@ public class SelectiveDisclosure {
         }
 
         try {
-            java.security.AlgorithmParameters params =
-                    java.security.AlgorithmParameters.getInstance("EC");
-            params.init(new java.security.spec.ECGenParameterSpec("secp256r1"));
-            ECParameterSpec ecSpec = params.getParameterSpec(ECParameterSpec.class);
-            ECPublicKeySpec pubSpec = new ECPublicKeySpec(new ECPoint(x, y), ecSpec);
+            ECPublicKeySpec pubSpec = new ECPublicKeySpec(new ECPoint(x, y), P256_SPEC);
             return (ECPublicKey) java.security.KeyFactory.getInstance("EC").generatePublic(pubSpec);
-        } catch (java.security.spec.InvalidParameterSpecException
-                 | java.security.spec.InvalidKeySpecException e) {
+        } catch (java.security.spec.InvalidKeySpecException e) {
             throw new GeneralSecurityException("Failed to construct P-256 public key", e);
         }
     }
