@@ -6,7 +6,10 @@ import com.nimbusds.jose.jwk.ECKey;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.security.Signature;
+import java.security.SignatureException;
 import java.security.interfaces.ECPrivateKey;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -24,13 +27,23 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class EcdsaInternalsTest {
 
+    // CBOR layout emitted by CborEncoder.encodeBaseProofValue for a P-256 base proof:
+    //   [0..2]  0xd9 0x5d 0x02   — ecdsa-sd-2023 base-proof tag
+    //   [3]     0x85             — CBOR array(5) header
+    //   [4..5]  0x58 0x40        — byte string, length 64
+    //   [6..69] 64-byte base signature
+    private static final int CBOR_BASE_SIG_OFFSET = 6;
+    private static final int CBOR_BASE_SIG_END = CBOR_BASE_SIG_OFFSET + 64;
+
     private final JsonLdProcessor jsonLdProcessor = new JsonLdProcessor(new CachedDocumentLoader());
     private final SelectiveDisclosure selectiveDisclosure = new SelectiveDisclosure(jsonLdProcessor);
 
     // ── DER ⇄ P1363 round-trip coverage (exercises the DER fallback path) ──
 
     @Test
-    void derToP1363RoundTripsForRealJdkDerSignature() throws Exception {
+    void derToP1363RoundTripsForRealJdkDerSignature()
+            throws NoSuchAlgorithmException, InvalidKeyException, SignatureException,
+                   com.nimbusds.jose.JOSEException {
         // The JDK DER path in signEcdsaP256Raw/verifyEcdsaP256Raw is only reached
         // when SHA256withECDSAinP1363Format is absent. Modern JDKs always ship
         // it, so the fallback is effectively never exercised at runtime. Test
@@ -69,8 +82,8 @@ class EcdsaInternalsTest {
         p1363[32] = (byte) 0x80;  // s has MSB set
         p1363[33] = 0x02;
         // Fill the rest with non-zero so the values are full-length.
-        for (int i = 2; i < 32; i++) p1363[i] = (byte) 0x11;
-        for (int i = 34; i < 64; i++) p1363[i] = (byte) 0x22;
+        Arrays.fill(p1363, 2, 32, (byte) 0x11);
+        Arrays.fill(p1363, 34, 64, (byte) 0x22);
 
         byte[] der = CredentialSigner.p1363ToDer(p1363);
         // 0x30 | total-len | 0x02 | 33 | 0x00 | 32 r-bytes | 0x02 | 33 | 0x00 | 32 s-bytes
@@ -118,15 +131,9 @@ class EcdsaInternalsTest {
     @Test
     void selectiveDisclosureBaseSignatureIsAlwaysLowS() {
         // Mirror of the ecdsa-rdfc-2022 low-S invariant, but for ecdsa-sd-2023.
-        // Without direct access to the signEcdsaP256 helper we read the base
-        // signature straight out of the CBOR prefix emitted by CborEncoder:
-        //
-        //   [0..2]  = 0xd9 0x5d 0x02         (CBOR tag)
-        //   [3]     = 0x85                   (array(5) header)
-        //   [4..5]  = 0x58 0x40              (byte string, length 64)
-        //   [6..69] = 64-byte base signature
-        //
-        // This layout is stable for P-256 base proofs.
+        // The base signature is extracted directly from the CBOR prefix (see
+        // CBOR_BASE_SIG_OFFSET) rather than via a decoder — main doesn't ship
+        // one yet, and the prefix layout is fixed for P-256 base proofs.
         ECKey keyPair = KeyPairManager.generateP256KeyPair();
 
         for (int i = 0; i < 20; i++) {
@@ -142,6 +149,8 @@ class EcdsaInternalsTest {
             Map<String, Object> proof = (Map<String, Object>) signed.get("proof");
             byte[] cbor = Multibase.decodeBase58Btc((String) proof.get("proofValue"));
 
+            // Lock in the CBOR prefix so a regression in CborEncoder that shifts
+            // the signature offset would surface here.
             assertEquals((byte) 0xd9, cbor[0]);
             assertEquals((byte) 0x5d, cbor[1]);
             assertEquals((byte) 0x02, cbor[2]);
@@ -149,7 +158,7 @@ class EcdsaInternalsTest {
             assertEquals((byte) 0x58, cbor[4]);
             assertEquals((byte) 0x40, cbor[5]);
 
-            byte[] baseSig = Arrays.copyOfRange(cbor, 6, 70);
+            byte[] baseSig = Arrays.copyOfRange(cbor, CBOR_BASE_SIG_OFFSET, CBOR_BASE_SIG_END);
             BigInteger s = new BigInteger(1, Arrays.copyOfRange(baseSig, 32, 64));
             assertTrue(s.signum() > 0, "s must be positive on iteration " + i);
             assertTrue(s.compareTo(CredentialSigner.P256_HALF_N) <= 0,

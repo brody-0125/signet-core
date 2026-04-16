@@ -232,9 +232,8 @@ class CredentialSignerTest {
         // Sanity: the original signature verifies.
         assertTrue(signer.verifyEcdsaDataIntegrity(signed, keyPair.toPublicJWK()));
 
-        // Forge the high-S twin by flipping s -> n - s.
-        Map<String, Object> proof = new LinkedHashMap<>((Map<String, Object>) signed.get("proof"));
-        byte[] origSig = Multibase.decodeBase58Btc((String) proof.get("proofValue"));
+        byte[] origSig = Multibase.decodeBase58Btc(
+                (String) ((Map<String, Object>) signed.get("proof")).get("proofValue"));
         byte[] forged = flipS(origSig, P256_N);
 
         // Preconditions: r is unchanged, s has actually been flipped to high-S.
@@ -245,12 +244,8 @@ class CredentialSignerTest {
         assertTrue(forgedS.compareTo(P256_HALF_N) > 0,
                 "forged signature must be in high-S region to exercise malleability");
 
-        proof.put("proofValue", Multibase.encodeBase58Btc(forged));
-        Map<String, Object> tampered = new LinkedHashMap<>(signed);
-        tampered.put("proof", proof);
-
-        boolean valid = signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK());
-        assertFalse(valid, "Verifier must reject the malleable high-S twin of a valid signature");
+        assertFalse(verifyWithForgedSignature(signed, keyPair, forged),
+                "Verifier must reject the malleable high-S twin of a valid signature");
     }
 
     @Test
@@ -262,16 +257,11 @@ class CredentialSignerTest {
         Map<String, Object> signed = signer.signWithEcdsaDataIntegrity(
                 credential, keyPair, "https://example.com/issuers/1#key-1");
 
-        Map<String, Object> proof = new LinkedHashMap<>((Map<String, Object>) signed.get("proof"));
-        // Truncate the signature to an invalid length.
-        byte[] origSig = Multibase.decodeBase58Btc((String) proof.get("proofValue"));
+        byte[] origSig = Multibase.decodeBase58Btc(
+                (String) ((Map<String, Object>) signed.get("proof")).get("proofValue"));
         byte[] truncated = Arrays.copyOfRange(origSig, 0, 32);
-        proof.put("proofValue", Multibase.encodeBase58Btc(truncated));
 
-        Map<String, Object> tampered = new LinkedHashMap<>(signed);
-        tampered.put("proof", proof);
-
-        assertFalse(signer.verifyEcdsaDataIntegrity(tampered, keyPair.toPublicJWK()),
+        assertFalse(verifyWithForgedSignature(signed, keyPair, truncated),
                 "Verifier must reject signatures that are not 64 bytes");
     }
 
