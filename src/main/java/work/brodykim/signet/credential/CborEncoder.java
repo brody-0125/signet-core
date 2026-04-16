@@ -27,7 +27,8 @@ final class CborEncoder {
     /**
      * Encode an ecdsa-sd-2023 base proof value.
      *
-     * <p>Format: CBOR tag 0xd9 0x5d 0x02 followed by a CBOR array:
+     * <p>Format (per W3C VC-DI-ECDSA §3.5.2): header bytes
+     * {@code 0xd9 0x5d 0x00} followed by a CBOR array:
      * {@code [baseSignature, publicKey, hmacKey, signatures, mandatoryPointers]}
      *
      * @param baseSignature     ECDSA P-256 base signature (64 bytes)
@@ -35,7 +36,7 @@ final class CborEncoder {
      * @param hmacKey           HMAC-SHA256 key (32 bytes)
      * @param signatures        per-message ECDSA signatures (list of 64-byte arrays)
      * @param mandatoryPointers JSON Pointer strings for mandatory disclosure
-     * @return CBOR-encoded byte array including the tag prefix
+     * @return CBOR-encoded byte array including the header prefix
      */
     static byte[] encodeBaseProofValue(byte[] baseSignature, byte[] publicKey,
                                        byte[] hmacKey, List<byte[]> signatures,
@@ -43,10 +44,10 @@ final class CborEncoder {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-            // CBOR tag: 0xd9 followed by 2-byte tag value 0x5d02
+            // W3C VC-DI-ECDSA §3.5.2: base proof header = 0xd9 0x5d 0x00
             out.write(0xd9);
             out.write(0x5d);
-            out.write(0x02);
+            out.write(0x00);
 
             // 5-element array
             writeArrayHeader(out, 5);

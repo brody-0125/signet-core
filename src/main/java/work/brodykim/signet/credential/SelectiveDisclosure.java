@@ -145,7 +145,9 @@ public class SelectiveDisclosure {
             byte[] proofValueBytes = CborEncoder.encodeBaseProofValue(
                     baseSignature, compressedPubKey, hmacKey,
                     signatures, mandatoryPointers);
-            String proofValue = Multibase.encodeBase58Btc(proofValueBytes);
+            // W3C VC-DI-ECDSA §3.5.2: proofValue is multibase-base64url-no-pad
+            // (starts with 'u'); parseBaseProofValue rejects anything else.
+            String proofValue = Multibase.encodeBase64UrlNoPad(proofValueBytes);
 
             // Step 11: Attach proof
             Map<String, Object> proof = new LinkedHashMap<>();
@@ -298,7 +300,7 @@ public class SelectiveDisclosure {
             throw new IllegalArgumentException("Proof is missing proofValue");
         }
 
-        byte[] cbor = Multibase.decodeBase58Btc(proofValue);
+        byte[] cbor = Multibase.decodeBase64UrlNoPad(proofValue);
         CborDecoder.BaseProofValue base = CborDecoder.decodeBaseProofValue(cbor);
 
         // Re-derive the HMAC'd canonical N-Quads from the credential. The
@@ -333,7 +335,9 @@ public class SelectiveDisclosure {
         byte[] derivedBytes = CborEncoder.encodeDerivedProofValue(
                 base.baseSignature, base.publicKey, base.signatures,
                 labelMap, mandatoryIndexesInDisclosed);
-        String derivedProofValue = Multibase.encodeBase58Btc(derivedBytes);
+        // W3C VC-DI-ECDSA §3.5.7: derived proofValue also uses multibase-
+        // base64url-no-pad ('u' prefix); parseDerivedProofValue rejects others.
+        String derivedProofValue = Multibase.encodeBase64UrlNoPad(derivedBytes);
 
         Map<String, Object> derivedProof = new LinkedHashMap<>((Map<String, Object>) proofMap);
         derivedProof.put("proofValue", derivedProofValue);
@@ -363,16 +367,41 @@ public class SelectiveDisclosure {
      *
      * <p>Verification never requires the HMAC key — that is the entire point
      * of stripping it during derivation.
+     *
+     * <p><b>Public-key trust contract:</b> this method verifies that the
+     * signatures in the proof are valid <i>under the public key embedded in
+     * the proof itself</i> (the CBOR {@code publicKey} element). It does
+     * <b>not</b> resolve {@code proof.verificationMethod} to a controller
+     * document and it does <b>not</b> check that the embedded key matches
+     * the expected issuer key. A conforming W3C VC Data Integrity verifier
+     * MUST dereference {@code verificationMethod}, validate the controller
+     * binding, and confirm the resolved key equals the proof's embedded key
+     * before trusting this method's boolean result. This method intentionally
+     * stops at cryptographic integrity so callers can layer their own
+     * issuer/controller trust model on top — but a bare {@code true} here
+     * is <b>not</b> sufficient to accept a credential in an open-world
+     * verifier.
+     *
+     * @param derivedCredential credential carrying an ecdsa-sd-2023 derived
+     *                          proof (as produced by {@link #deriveProof})
+     * @return {@code true} if the proof bytes verify under their embedded
+     *         public key; {@code false} on any structural, cryptosuite,
+     *         or signature mismatch. Never throws.
      */
     @SuppressWarnings("unchecked")
     public boolean verifyDerivedProof(Map<String, Object> derivedCredential) {
         try {
             Object proofObj = derivedCredential.get("proof");
             if (!(proofObj instanceof Map<?, ?> proofMap)) return false;
+            // Cryptosuite guard per W3C VC-DI-ECDSA §2.2.1: this method is only
+            // defined for ecdsa-sd-2023. A proof carrying a different suite
+            // (e.g. ecdsa-rdfc-2022) would cause a misleading CBOR decode
+            // failure downstream; fail fast with a clean `false` instead.
+            if (!"ecdsa-sd-2023".equals(proofMap.get("cryptosuite"))) return false;
             Object proofValueObj = proofMap.get("proofValue");
             if (!(proofValueObj instanceof String proofValue)) return false;
 
-            byte[] cbor = Multibase.decodeBase58Btc(proofValue);
+            byte[] cbor = Multibase.decodeBase64UrlNoPad(proofValue);
             CborDecoder.DerivedProofValue derived = CborDecoder.decodeDerivedProofValue(cbor);
 
             // Reconstruct the canonical form the issuer signed over.
@@ -383,7 +412,16 @@ public class SelectiveDisclosure {
             String relabelled = applyLabelMap(canonicalNQuads, derived.labelMap);
             List<String> quadList = splitNonEmpty(relabelled);
 
-            // Split mandatory vs non-mandatory by mandatoryIndexes.
+            // Split mandatory vs non-mandatory by mandatoryIndexes. Every
+            // index MUST refer to a quad that actually exists in the disclosed
+            // set; otherwise the proof is structurally invalid. Silently
+            // ignoring out-of-range indexes would still cause verification to
+            // fail downstream (mandatory hash mismatch), but an explicit
+            // bounds check gives a cleaner failure and matches the intent of
+            // parseDerivedProofValue (W3C VC-DI-ECDSA §3.5.8).
+            for (Integer idx : derived.mandatoryIndexes) {
+                if (idx == null || idx < 0 || idx >= quadList.size()) return false;
+            }
             List<String> mandatoryQuads = new ArrayList<>();
             List<String> nonMandatoryQuads = new ArrayList<>();
             java.util.Set<Integer> mandatorySet = new java.util.HashSet<>(derived.mandatoryIndexes);

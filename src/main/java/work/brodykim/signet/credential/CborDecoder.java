@@ -73,14 +73,15 @@ final class CborDecoder {
     /**
      * Decode an ecdsa-sd-2023 base proof value.
      *
-     * <p>Expected wire format (matches {@link CborEncoder#encodeBaseProofValue}):
-     * CBOR tag {@code 0xd9 0x5d 0x02} followed by a 5-element array:
+     * <p>Expected wire format (W3C VC-DI-ECDSA §3.5.2, matches
+     * {@link CborEncoder#encodeBaseProofValue}): header bytes
+     * {@code 0xd9 0x5d 0x00} followed by a 5-element array:
      * {@code [baseSignature, publicKey, hmacKey, signatures, mandatoryPointers]}.
      */
     static BaseProofValue decodeBaseProofValue(byte[] cbor) {
         ByteArrayInputStream in = new ByteArrayInputStream(cbor);
         try {
-            expectTag(in, 0x5d02);
+            expectTag(in, 0x5d00);
             int arrayLen = readArrayHeader(in);
             if (arrayLen != 5) {
                 throw new IllegalArgumentException(

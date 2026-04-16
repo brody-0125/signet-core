@@ -37,14 +37,42 @@ class SelectiveDisclosureTest {
         assertEquals("ecdsa-sd-2023", proof.get("cryptosuite"));
         String proofValue = (String) proof.get("proofValue");
         assertNotNull(proofValue);
-        assertTrue(proofValue.startsWith("z"), "proofValue must be multibase base58btc");
+        // W3C VC-DI-ECDSA §3.5.7: derived proofValue MUST be multibase-
+        // base64url-no-pad (starts with 'u'). parseDerivedProofValue rejects
+        // any other prefix.
+        assertTrue(proofValue.startsWith("u"),
+                "proofValue must be multibase base64url-no-pad (prefix 'u'), got: " + proofValue);
 
-        // Derived proof uses CBOR tag 0xd9 0x5d 0x01 (vs. base proof's 0xd9 0x5d 0x02).
-        // This tag is the wire-level marker that the HMAC key has been stripped.
-        byte[] cbor = Multibase.decodeBase58Btc(proofValue);
+        // W3C VC-DI-ECDSA §3.5.7: derived proof header = 0xd9 0x5d 0x01
+        // (distinct from the base proof's 0xd9 0x5d 0x00 per §3.5.2).
+        byte[] cbor = Multibase.decodeBase64UrlNoPad(proofValue);
         assertEquals((byte) 0xd9, cbor[0]);
         assertEquals((byte) 0x5d, cbor[1]);
-        assertEquals((byte) 0x01, cbor[2], "Derived proof must use tag 0x5d01, not 0x5d02 (base)");
+        assertEquals((byte) 0x01, cbor[2], "Derived proof must use header 0x5d01");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void baseProofUsesSpecCompliantHeaderAndMultibasePrefix() {
+        // Regression test for W3C VC-DI-ECDSA §3.5.2 / §3.5.3 compliance:
+        // base proofValue MUST be multibase base64url-no-pad ('u' prefix),
+        // and the decoded bytes MUST start with 0xd9 0x5d 0x00.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = sd.createBaseProof(
+                credential, keyPair, "https://example.com/issuers/1#key-1",
+                List.of("/issuer"));
+
+        Map<String, Object> proof = (Map<String, Object>) signed.get("proof");
+        String proofValue = (String) proof.get("proofValue");
+        assertTrue(proofValue.startsWith("u"),
+                "Base proofValue must be multibase base64url-no-pad (prefix 'u'), got: " + proofValue);
+
+        byte[] cbor = Multibase.decodeBase64UrlNoPad(proofValue);
+        assertEquals((byte) 0xd9, cbor[0]);
+        assertEquals((byte) 0x5d, cbor[1]);
+        assertEquals((byte) 0x00, cbor[2], "Base proof must use header 0x5d00 per spec §3.5.2");
     }
 
     @Test
@@ -62,23 +90,22 @@ class SelectiveDisclosureTest {
                 credential, keyPair, "https://example.com/issuers/1#key-1",
                 List.of("/issuer", "/validFrom"));
 
-        // Pull the HMAC key out of the base proof (it lives inside the CBOR
-        // proofValue; structure: tag(3) + arrayHeader(1) + baseSig(2+64) +
-        // pubKey(2+33) + hmacKey(2+32) + ...). We just need to verify the
-        // 32-byte key bytes are absent from the derived proofValue, so we
-        // locate them by scanning for any 32-byte byte-string in the base
-        // proof that lies after the publicKey.
+        // Pull the HMAC key out of the base proof. The CBOR layout per
+        // W3C VC-DI-ECDSA §3.5.2 is:
+        //   0xd9 0x5d 0x00 | 0x85 (array(5))
+        //   | 0x58 0x40 [64 bytes baseSig]
+        //   | 0x58 0x21 [33 bytes pubKey]
+        //   | 0x58 0x20 [32 bytes hmacKey]
+        //   | ...
         Map<String, Object> baseProof = (Map<String, Object>) signed.get("proof");
-        byte[] baseCbor = Multibase.decodeBase58Btc((String) baseProof.get("proofValue"));
-        // Layout: 0xd9 0x5d 0x02 | 0x85 (array(5)) | 0x58 0x40 [64 bytes baseSig]
-        //         | 0x58 0x21 [33 bytes pubKey] | 0x58 0x20 [32 bytes hmacKey] | ...
+        byte[] baseCbor = Multibase.decodeBase64UrlNoPad((String) baseProof.get("proofValue"));
         int hmacKeyOffset = 3 + 1 + 2 + 64 + 2 + 33 + 2;
         byte[] hmacKey = new byte[32];
         System.arraycopy(baseCbor, hmacKeyOffset, hmacKey, 0, 32);
 
         Map<String, Object> derived = sd.deriveProof(signed);
         Map<String, Object> derivedProof = (Map<String, Object>) derived.get("proof");
-        byte[] derivedCbor = Multibase.decodeBase58Btc((String) derivedProof.get("proofValue"));
+        byte[] derivedCbor = Multibase.decodeBase64UrlNoPad((String) derivedProof.get("proofValue"));
 
         assertFalse(containsSubsequence(derivedCbor, hmacKey),
                 "Derived proof must not embed the HMAC key bytes — that would let any "
@@ -134,14 +161,54 @@ class SelectiveDisclosureTest {
         Map<String, Object> derived = sd.deriveProof(signed);
 
         Map<String, Object> proof = (Map<String, Object>) derived.get("proof");
-        byte[] cbor = Multibase.decodeBase58Btc((String) proof.get("proofValue"));
+        byte[] cbor = Multibase.decodeBase64UrlNoPad((String) proof.get("proofValue"));
         // Flip a byte deep inside the CBOR (somewhere in the base signature).
         cbor[10] ^= (byte) 0xFF;
-        proof.put("proofValue", Multibase.encodeBase58Btc(cbor));
+        proof.put("proofValue", Multibase.encodeBase64UrlNoPad(cbor));
 
         assertFalse(sd.verifyDerivedProof(derived),
                 "Verification must fail when proofValue bytes are corrupted");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyRejectsNonEcdsaSd2023Cryptosuite() {
+        // W3C VC-DI-ECDSA §2.2.1 + §3.5.8 require the cryptosuite to match
+        // before decoding the proof value. Feeding a base proof or a
+        // differently-labelled proof must fail fast rather than surfacing a
+        // confusing CBOR-level error.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = sd.createBaseProof(
+                credential, keyPair, "https://example.com/issuers/1#key-1",
+                List.of("/issuer"));
+        Map<String, Object> derived = sd.deriveProof(signed);
+
+        Map<String, Object> proof = (Map<String, Object>) derived.get("proof");
+        proof.put("cryptosuite", "ecdsa-rdfc-2022");
+
+        assertFalse(sd.verifyDerivedProof(derived),
+                "verifyDerivedProof must refuse non-ecdsa-sd-2023 cryptosuites");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyRejectsBaseProofFedToDerivedVerifier() {
+        // Feeding a base proof (header 0xd9 0x5d 0x00) to the derived-proof
+        // verifier (expects 0xd9 0x5d 0x01) must fail: the two are wire-level
+        // distinct per spec §3.5.2 / §3.5.7.
+        ECKey keyPair = KeyPairManager.generateP256KeyPair();
+        Map<String, Object> credential = buildSampleCredential();
+
+        Map<String, Object> signed = sd.createBaseProof(
+                credential, keyPair, "https://example.com/issuers/1#key-1",
+                List.of("/issuer"));
+
+        assertFalse(sd.verifyDerivedProof(signed),
+                "Base proof must not verify as a derived proof (distinct CBOR headers)");
+    }
+
 
     @Test
     void deriveProofIsDeterministicForFixedHmacKey() {
