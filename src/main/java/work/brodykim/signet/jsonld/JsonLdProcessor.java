@@ -61,6 +61,19 @@ public class JsonLdProcessor {
     /**
      * Canonicalize a JSON-LD document using RDFC-1.0 (URDNA2015).
      *
+     * <p><b>Unicode handling — interop note:</b> before RDF conversion, all
+     * string literals and map keys are normalized to Unicode NFC (see
+     * {@link #normalizeNfc}). RDFC-1.0 itself does not mandate NFC, so a
+     * credential signed with this library may produce different canonical
+     * bytes than a strict RDFC-1.0 implementation that preserves the
+     * caller's original Unicode composition. In practice this only matters
+     * if a counterparty signs the same credential with a non-NFC-normalizing
+     * stack and expects byte-identical output; for the W3C VC / Open Badges
+     * 3.0 ecosystem, where credential contents are almost always ASCII and
+     * where the risk of a silent NFC-vs-NFD mismatch between issuer and
+     * verifier is the greater concern, this library errs on the side of
+     * determinism.
+     *
      * @param document JSON-LD document as a {@code Map<String, Object>}
      * @return canonical N-Quads as UTF-8 bytes, suitable for hashing
      */
@@ -284,10 +297,14 @@ public class JsonLdProcessor {
 
     /**
      * Dispatch a Java value to its Jakarta {@link JsonValue} representation.
-     * Strings are NFC-normalized (see {@link #normalizeNfc}); numeric widenings
-     * preserve value (Float is routed through {@link BigDecimal} to avoid the
-     * lossy {@code double} conversion that plain {@code builder.add(double)}
-     * would perform).
+     * Strings are NFC-normalized (see {@link #normalizeNfc}).
+     *
+     * <p>{@code Float} is converted via {@code new BigDecimal(Float.toString(f))}
+     * so that the serialized canonical form reflects the {@code float}'s
+     * short decimal representation (e.g. {@code 0.1f} → {@code 0.1}) rather
+     * than the wider {@code double} widening (which would yield
+     * {@code 0.10000000149011612}). {@code Double} is left as-is because
+     * callers have already committed to double precision.
      */
     @SuppressWarnings("unchecked")
     private static JsonValue toJsonValue(Object value) {
@@ -308,7 +325,7 @@ public class JsonLdProcessor {
         } else if (value instanceof Double d) {
             return Json.createValue(d);
         } else if (value instanceof Float f) {
-            return Json.createValue(BigDecimal.valueOf(f.doubleValue()));
+            return Json.createValue(new BigDecimal(Float.toString(f)));
         } else if (value instanceof BigDecimal bd) {
             return Json.createValue(bd);
         } else if (value instanceof BigInteger bi) {
