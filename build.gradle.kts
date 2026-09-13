@@ -1,10 +1,31 @@
+import java.util.zip.ZipFile
+
 plugins {
     `java-library`
     `maven-publish`
 }
+tasks.register("verifyPublicationNotices") {
+    dependsOn("jar", "generatePomFileForMavenPublication")
+    doLast {
+        ZipFile(tasks.named<Jar>("jar").get().archiveFile.get().asFile).use { jar ->
+            for (name in listOf("LICENSE", "NOTICE")) {
+                val entry = checkNotNull(jar.getEntry("META-INF/$name")) { "Missing META-INF/$name" }
+                check(jar.getInputStream(entry).use { it.readBytes() }.contentEquals(file(name).readBytes()))
+            }
+        }
+        val pom = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(layout.buildDirectory.file("publications/maven/pom-default.xml").get().asFile)
+        val license = pom.getElementsByTagName("license")
+        check(license.length == 1 && license.item(0).textContent.contains("https://www.apache.org/licenses/LICENSE-2.0.txt")) {
+            "Published POM must declare Apache-2.0"
+        }
+    }
+}
+
+tasks.named("check") { dependsOn("verifyPublicationNotices") }
 
 group = "work.brodykim"
-version = "0.1.2"
+version = "0.1.3"
 
 repositories {
     mavenCentral()
@@ -42,6 +63,15 @@ publishing {
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
+            pom {
+                licenses {
+                    license {
+                        name.set("Apache License, Version 2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                        distribution.set("repo")
+                    }
+                }
+            }
         }
     }
 }
@@ -53,4 +83,8 @@ tasks.withType<JavaCompile> {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+tasks.named<Jar>("jar") {
+    from(files("LICENSE", "NOTICE")) { into("META-INF") }
 }
