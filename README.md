@@ -24,7 +24,7 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.brody-0125:signet-core:v0.1.2")
+    implementation("com.github.brody-0125:signet-core:v0.1.3")
 }
 ```
 
@@ -36,7 +36,7 @@ repositories {
     maven { url 'https://jitpack.io' }
 }
 dependencies {
-    implementation 'com.github.brody-0125:signet-core:v0.1.2'
+    implementation 'com.github.brody-0125:signet-core:v0.1.3'
 }
 ```
 
@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 
-Licensed under the [Apache License 2.0](../LICENSE).
+Licensed under the [Apache License 2.0](LICENSE).
 
 ## Credential revocation status
 

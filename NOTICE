@@ -82,8 +82,10 @@ This product depends on the following third-party libraries:
 - Eclipse Parsson (https://github.com/eclipse-ee4j/parsson)
   License: Eclipse Public License 2.0 (with Secondary License: GPL 2.0
   with Classpath Exception)
-  Note: EPL 2.0 Section 3 "Secondary Licenses" permits distribution under
-  Apache License 2.0 when the Initial Contributor designates GPL 2.0 with
-  Classpath Exception as a Secondary License. Parsson includes this
-  designation. This project uses Parsson as a Jakarta JSON Processing
-  provider required by Titanium JSON-LD.
+  Parsson remains covered by its own license. Its conditional secondary
+  license designation is GPL 2.0 with the Classpath Exception, not Apache-2.0.
+  This project uses the unmodified Parsson 1.1.7 Jakarta JSON provider.
+  License and source:
+  https://github.com/eclipse-ee4j/parsson/blob/1.1.7/LICENSE.md
+  https://github.com/eclipse-ee4j/parsson/tree/1.1.7
+  Preserve Parsson's license and notices when redistributing its artifacts.
