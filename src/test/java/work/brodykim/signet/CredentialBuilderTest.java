@@ -253,10 +253,13 @@ class CredentialBuilderTest {
 
         Map<String, Object> credentialStatus = (Map<String, Object>) credential.get("credentialStatus");
         assertNotNull(credentialStatus, "credentialStatus should be present");
-        assertEquals("https://example.com/credentials/status/1#42", credentialStatus.get("id"));
-        assertEquals(OpenBadgesContext.REVOCATION_LIST_TYPE, credentialStatus.get("type"));
-        assertEquals("42", credentialStatus.get("statusListIndex"));
-        assertEquals("https://example.com/credentials/status/1", credentialStatus.get("statusListCredential"));
+        assertEquals(Map.of("id", "https://example.com/credentials/status/1",
+                "type", OpenBadgesContext.REVOCATION_LIST_TYPE), credentialStatus);
+        Map<String, Object> endpointOnly = builder.buildCredential(
+                UUID.randomUUID(), "user@example.com", null, achievement, issuer,
+                Instant.now(), null, null, null, null,
+                new CredentialStatus("https://example.com/credentials/status/1"), false);
+        assertEquals(credentialStatus, endpointOnly.get("credentialStatus"));
     }
 
     @Test

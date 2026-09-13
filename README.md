@@ -24,7 +24,7 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.brody-0125:signet-core:v0.1.1")
+    implementation("com.github.brody-0125:signet-core:v0.1.2")
 }
 ```
 
@@ -36,7 +36,7 @@ repositories {
     maven { url 'https://jitpack.io' }
 }
 dependencies {
-    implementation 'com.github.brody-0125:signet-core:v0.1.1'
+    implementation 'com.github.brody-0125:signet-core:v0.1.2'
 }
 ```
 
@@ -173,3 +173,11 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 ## License
 
 Licensed under the [Apache License 2.0](../LICENSE).
+
+## Credential revocation status
+
+Set `CredentialRequest.Builder.credentialStatus(new CredentialBuilder.CredentialStatus("https://issuer.example/revocations"))` to include a status endpoint in newly issued credentials. The resulting `credentialStatus` contains only `id` and `type: 1EdTechRevocationList`, following the [1EdTech Revocation List Status Method](https://www.imsglobal.org/spec/vcrl/v1p0/).
+
+The issuer must serve the revocation list over HTTPS using TLS 1.2 or 1.3. This library builds the status reference; it does not host or fetch the list. Consumers must check revocation separately from signature verification.
+
+The two-argument `CredentialStatus(url, index)` constructor remains available for compatibility, but its index is ignored. Starting with v0.1.2, new credentials no longer append an index fragment or emit bitstring status-list fields. Existing signed credentials are not rewritten; retain their original bytes when verifying signatures.
