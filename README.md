@@ -19,20 +19,30 @@ This module has **zero Spring dependencies** and can be used in any Java 17+ app
 ### Gradle (Kotlin DSL)
 
 ```kotlin
+repositories {
+    mavenCentral()
+    maven("https://jitpack.io")
+}
 dependencies {
-    implementation("work.brodykim:signet-core:0.2.0")
+    implementation("com.github.brody-0125:signet-core:v0.1.1")
 }
 ```
 
 ### Gradle (Groovy DSL)
 
 ```groovy
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
 dependencies {
-    implementation 'work.brodykim:signet-core:0.2.0'
+    implementation 'com.github.brody-0125:signet-core:v0.1.1'
 }
 ```
 
 ## Quick Start
+
+Recipient email identifiers are normalized with `Locale.ROOT` before hashing, so the same email and salt produce the same identity across server locales. Credentials previously issued under locale-sensitive normalization retain their original signed identifiers; this change does not rewrite existing credentials.
 
 ### 1. Build a Credential
 
