@@ -25,6 +25,21 @@ class CredentialSignerTest {
     private final CredentialSigner signer = new CredentialSigner(objectMapper, jsonLdProcessor);
 
     @Test
+    void shouldBindRevocationEndpointToDataIntegrityProof() {
+        OctetKeyPair keyPair = KeyPairManager.generateEd25519KeyPair();
+        Map<String, Object> credential = new LinkedHashMap<>(buildSampleCredential());
+        credential.put("credentialStatus", Map.of("id", "https://example.com/revocations",
+                "type", "1EdTechRevocationList"));
+        Map<String, Object> signed = signer.signWithDataIntegrity(
+                credential, keyPair, "https://example.com/issuers/1#key-1");
+        assertTrue(signer.verifyDataIntegrity(signed, keyPair.toPublicJWK()));
+        Map<String, Object> tampered = new LinkedHashMap<>(signed);
+        tampered.put("credentialStatus", Map.of("id", "https://example.com/other-revocations",
+                "type", "1EdTechRevocationList"));
+        assertFalse(signer.verifyDataIntegrity(tampered, keyPair.toPublicJWK()));
+    }
+
+    @Test
     void shouldSignAndVerifyCredentialViaJws() {
         OctetKeyPair keyPair = KeyPairManager.generateEd25519KeyPair();
         Map<String, Object> credential = Map.of("type", "test", "name", "Test Badge");

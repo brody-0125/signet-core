@@ -69,10 +69,8 @@ class OpenBadgesValidatorTest {
     void shouldValidateCredentialStatusWhenPresent() {
         Map<String, Object> document = buildValidDocument();
         document.put("credentialStatus", Map.of(
-                "id", "https://example.com/status/1#42",
-                "type", OpenBadgesContext.REVOCATION_LIST_TYPE,
-                "statusListIndex", "42",
-                "statusListCredential", "https://example.com/status/1"
+                "id", "https://example.com/status/1",
+                "type", OpenBadgesContext.REVOCATION_LIST_TYPE
         ));
 
         ValidationResult result = validator.validate(document);
@@ -83,14 +81,14 @@ class OpenBadgesValidatorTest {
     void shouldFailCredentialStatusMissingFields() {
         Map<String, Object> document = buildValidDocument();
         document.put("credentialStatus", Map.of(
-                "id", "https://example.com/status/1#42",
                 "type", OpenBadgesContext.REVOCATION_LIST_TYPE
         ));
 
         ValidationResult result = validator.validate(document);
         assertFalse(result.valid());
-        assertTrue(result.errors().stream().anyMatch(e -> e.contains("statusListIndex")));
-        assertTrue(result.errors().stream().anyMatch(e -> e.contains("statusListCredential")));
+        assertTrue(result.errors().contains("credentialStatus.id is required"));
+        document.put("credentialStatus", Map.of("id", "https://example.com/status/1"));
+        assertTrue(validator.validate(document).errors().contains("credentialStatus.type is required"));
     }
 
     @Test

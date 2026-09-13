@@ -52,10 +52,13 @@ public class CredentialBuilder {
     /**
      * Configuration for credential revocation status (1EdTechRevocationList).
      *
-     * @param statusListCredential URL of the revocation status list credential
-     * @param statusListIndex      index of this credential within the status list
+     * @param statusListCredential URL of the issuer's revocation list endpoint
+     * @param statusListIndex retained for compatibility; ignored because this method has no index
      */
     public record CredentialStatus(String statusListCredential, String statusListIndex) {
+        public CredentialStatus(String revocationListUrl) {
+            this(revocationListUrl, null);
+        }
     }
 
     // ── Legacy overloaded methods (kept for backwards compatibility) ────────
@@ -141,12 +144,8 @@ public class CredentialBuilder {
         // OB 3.0: credentialStatus for revocation (1EdTechRevocationList)
         if (request.credentialStatus() != null) {
             CredentialStatus cs = request.credentialStatus();
-            Map<String, Object> status = new LinkedHashMap<>();
-            status.put("id", cs.statusListCredential() + "#" + cs.statusListIndex());
-            status.put("type", OpenBadgesContext.REVOCATION_LIST_TYPE);
-            status.put("statusListIndex", cs.statusListIndex());
-            status.put("statusListCredential", cs.statusListCredential());
-            credential.put("credentialStatus", status);
+            credential.put("credentialStatus", Map.of(
+                    "id", cs.statusListCredential(), "type", OpenBadgesContext.REVOCATION_LIST_TYPE));
         }
 
         // OB 3.0: refreshService for credential refresh (1EdTechCredentialRefresh)

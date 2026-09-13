@@ -199,14 +199,6 @@ public class OpenBadgesValidator {
             if (statusMap.get("type") == null) {
                 errors.add("credentialStatus.type is required");
             }
-            if (OpenBadgesContext.REVOCATION_LIST_TYPE.equals(statusMap.get("type"))) {
-                if (statusMap.get("statusListIndex") == null) {
-                    errors.add("credentialStatus.statusListIndex is required for " + OpenBadgesContext.REVOCATION_LIST_TYPE);
-                }
-                if (statusMap.get("statusListCredential") == null) {
-                    errors.add("credentialStatus.statusListCredential is required for " + OpenBadgesContext.REVOCATION_LIST_TYPE);
-                }
-            }
         }
 
         // refreshService validation (if present)
