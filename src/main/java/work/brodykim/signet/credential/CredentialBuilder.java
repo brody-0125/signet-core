@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -250,7 +251,7 @@ public class CredentialBuilder {
 
     private Map<String, Object> buildCredentialSubject(CredentialRequest request, String subjectBaseUrl) {
         String hashedEmail = BadgeUtils.sha256Hex(
-                request.recipientEmail().toLowerCase().trim() + recipientSalt);
+                request.recipientEmail().toLowerCase(Locale.ROOT).trim() + recipientSalt);
 
         Map<String, Object> identityObject = new LinkedHashMap<>();
         identityObject.put("type", "IdentityObject");
