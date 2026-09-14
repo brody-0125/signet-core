@@ -20,6 +20,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class CredentialSignerTest {
 
+    @Test
+    void shouldBindOriginalUnicodeCodePointsToProof() {
+        OctetKeyPair key = KeyPairManager.generateEd25519KeyPair();
+        Map<String, Object> credential = new LinkedHashMap<>(buildSampleCredential());
+        String original = "Cafe\u0301 \u1100\u1161";
+        credential.put("name", original);
+        Map<String, Object> signed = signer.signWithDataIntegrity(credential, key, "https://example.com/issuers/1#key-1");
+        assertEquals(original, signed.get("name"));
+        assertTrue(signer.verifyDataIntegrity(signed, key.toPublicJWK()));
+        Map<String, Object> changed = new LinkedHashMap<>(signed);
+        changed.put("name", java.text.Normalizer.normalize(original, java.text.Normalizer.Form.NFC));
+        assertFalse(signer.verifyDataIntegrity(changed, key.toPublicJWK()));
+    }
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final JsonLdProcessor jsonLdProcessor = new JsonLdProcessor(new CachedDocumentLoader());
     private final CredentialSigner signer = new CredentialSigner(objectMapper, jsonLdProcessor);
