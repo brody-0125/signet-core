@@ -31,7 +31,6 @@ import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -61,18 +60,9 @@ public class JsonLdProcessor {
     /**
      * Canonicalize a JSON-LD document using RDFC-1.0 (URDNA2015).
      *
-     * <p><b>Unicode handling — interop note:</b> before RDF conversion, all
-     * string literals and map keys are normalized to Unicode NFC (see
-     * {@link #normalizeNfc}). RDFC-1.0 itself does not mandate NFC, so a
-     * credential signed with this library may produce different canonical
-     * bytes than a strict RDFC-1.0 implementation that preserves the
-     * caller's original Unicode composition. In practice this only matters
-     * if a counterparty signs the same credential with a non-NFC-normalizing
-     * stack and expects byte-identical output; for the W3C VC / Open Badges
-     * 3.0 ecosystem, where credential contents are almost always ASCII and
-     * where the risk of a silent NFC-vs-NFD mismatch between issuer and
-     * verifier is the greater concern, this library errs on the side of
-     * determinism.
+     * <p>Preserves the original Unicode code points in literals, IRIs and property
+     * names. Normalizing them here would sign different data than the returned
+     * document and could merge distinct JSON properties.
      *
      * @param document JSON-LD document as a {@code Map<String, Object>}
      * @return canonical N-Quads as UTF-8 bytes, suitable for hashing
@@ -282,7 +272,7 @@ public class JsonLdProcessor {
     static JsonObject mapToJsonObject(Map<String, Object> map) {
         JsonObjectBuilder builder = Json.createObjectBuilder();
         for (Map.Entry<String, Object> entry : map.entrySet()) {
-            builder.add(normalizeNfc(entry.getKey()), toJsonValue(entry.getValue()));
+            builder.add(entry.getKey(), toJsonValue(entry.getValue()));
         }
         return builder.build();
     }
@@ -297,7 +287,7 @@ public class JsonLdProcessor {
 
     /**
      * Dispatch a Java value to its Jakarta {@link JsonValue} representation.
-     * Strings are NFC-normalized (see {@link #normalizeNfc}).
+     * Strings retain their original Unicode code points.
      *
      * <p>{@code Float} is converted via {@code new BigDecimal(Float.toString(f))}
      * so that the serialized canonical form reflects the {@code float}'s
@@ -311,7 +301,7 @@ public class JsonLdProcessor {
         if (value == null) {
             return JsonValue.NULL;
         } else if (value instanceof String s) {
-            return Json.createValue(normalizeNfc(s));
+            return Json.createValue(s);
         } else if (value instanceof Boolean b) {
             return b ? JsonValue.TRUE : JsonValue.FALSE;
         } else if (value instanceof Integer i) {
@@ -341,23 +331,4 @@ public class JsonLdProcessor {
                         + "BigDecimal, BigInteger, Map, List.");
     }
 
-    /**
-     * Normalize a string to Unicode NFC before canonicalization.
-     *
-     * <p>RDFC-1.0 assumes input literals are already Unicode-normalized;
-     * however, a VC issuer may emit a literal like {@code "é"} as either a
-     * pre-composed code point (U+00E9) or as a combining sequence
-     * (U+0065 U+0301). Both are semantically identical but produce different
-     * N-Quads and therefore different signature hashes. To keep signing and
-     * verification deterministic regardless of the caller's source encoding,
-     * we apply NFC at the ingress boundary.
-     */
-    static String normalizeNfc(String s) {
-        if (s == null || s.isEmpty()) {
-            return s;
-        }
-        return Normalizer.isNormalized(s, Normalizer.Form.NFC)
-                ? s
-                : Normalizer.normalize(s, Normalizer.Form.NFC);
-    }
 }

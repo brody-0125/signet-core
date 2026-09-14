@@ -71,7 +71,7 @@ class JsonLdProcessorTest {
     }
 
     @Test
-    void shouldProduceSameOutputForNfcAndNfdEquivalentLiterals() {
+    void shouldPreserveUnicodeCompositionInCanonicalLiterals() {
         String nfcName = "caf\u00E9";
         String nfdName = "cafe\u0301";
         assertNotEquals(nfcName, nfdName,
@@ -83,9 +83,19 @@ class JsonLdProcessorTest {
         byte[] canonicalNfc = processor.canonicalize(credNfc);
         byte[] canonicalNfd = processor.canonicalize(credNfd);
 
-        assertArrayEquals(canonicalNfc, canonicalNfd,
-                "NFC and NFD forms of the same string must produce identical canonical N-Quads "
-                        + "so that a credential signed with one form verifies under the other");
+        assertFalse(java.util.Arrays.equals(canonicalNfc, canonicalNfd),
+                "Distinct RDF literal code points must remain distinct");
+        assertTrue(new String(canonicalNfd, java.nio.charset.StandardCharsets.UTF_8).contains(nfdName));
+    }
+
+    @Test
+    void shouldNotMergeDistinctUnicodePropertyNames() {
+        Map<String, Object> document = Map.of(
+                "@context", Map.of("caf\u00e9", "https://example.com/composed", "cafe\u0301", "https://example.com/decomposed"),
+                "caf\u00e9", "first", "cafe\u0301", "second");
+        String rdf = new String(processor.canonicalize(document), java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(rdf.contains("<https://example.com/composed> \"first\""));
+        assertTrue(rdf.contains("<https://example.com/decomposed> \"second\""));
     }
 
     @Test

@@ -24,7 +24,7 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.brody-0125:signet-core:v0.1.4")
+    implementation("com.github.brody-0125:signet-core:v0.1.5")
 }
 ```
 
@@ -36,7 +36,7 @@ repositories {
     maven { url 'https://jitpack.io' }
 }
 dependencies {
-    implementation 'com.github.brody-0125:signet-core:v0.1.4'
+    implementation 'com.github.brody-0125:signet-core:v0.1.5'
 }
 ```
 
@@ -153,6 +153,8 @@ The `CachedDocumentLoader` ships with pre-bundled contexts to avoid network fetc
 Credentials built from version 0.1.4 include the extension context so those types survive RDF conversion and strict JSON-LD verification. Existing signed credentials are not rewritten: adding a context changes the signed data and requires a newly signed credential. The loader retains the earlier contexts for existing documents.
 
 ## Requirements
+
+Version 0.1.5 preserves original Unicode code points during RDF conversion. Earlier versions normalized literals and property names to NFC while leaving the returned JSON unchanged, so decomposed text could fail external signature verification. NFC and ASCII credentials are unaffected by this change. Previously signed decomposed documents need explicit review and reissuance; the verifier does not silently retry the former nonstandard transformation. Applications that require Unicode normalization must do it before constructing and signing the document.
 
 - Java 17+
 - No Spring or framework dependencies
