@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *   <li>{@code https://www.w3.org/ns/credentials/v2} — W3C VC Data Model 2.0</li>
  *   <li>{@code https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json} — OB 3.0</li>
+ *   <li>{@code https://purl.imsglobal.org/spec/ob/v3p0/extensions.json} — OB extensions</li>
  * </ul>
  *
  * <p><b>Security — signing/verification paths:</b> RDFC-1.0 canonicalization
@@ -43,7 +44,9 @@ public class CachedDocumentLoader implements DocumentLoader {
             "https://www.w3.org/ns/credentials/v2",
             "/jsonld/credentials-v2.jsonld",
             "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json",
-            "/jsonld/ob-v3p0-context-3.0.3.json"
+            "/jsonld/ob-v3p0-context-3.0.3.json",
+            "https://purl.imsglobal.org/spec/ob/v3p0/extensions.json",
+            "/jsonld/ob-v3p0-extensions.json"
     );
 
     private final Map<String, Document> cache = new ConcurrentHashMap<>();

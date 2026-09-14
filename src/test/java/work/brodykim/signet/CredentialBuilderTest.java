@@ -18,6 +18,22 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class CredentialBuilderTest {
 
+    @Test
+    void shouldPreserveExtensionTypesInSignedRdf() {
+        Map<String, Object> credential = builder.buildCredential(UUID.randomUUID(), "user@example.com", null,
+                achievement, issuer, Instant.now(), null, null, null, null,
+                new CredentialStatus("https://example.com/revocations"), true);
+        var processor = new work.brodykim.signet.jsonld.JsonLdProcessor(
+                new work.brodykim.signet.jsonld.CachedDocumentLoader());
+        String rdf = new String(processor.canonicalize(credential), java.nio.charset.StandardCharsets.UTF_8);
+        for (String iri : List.of(
+                "https://purl.imsglobal.org/spec/vccs/v1p0/context.json#1EdTechJsonSchemaValidator2019",
+                "https://purl.imsglobal.org/spec/vcrl/v1p0/context.json#1EdTechRevocationList",
+                "https://purl.imsglobal.org/spec/vccr/v1p0/context.json#1EdTechCredentialRefresh")) {
+            assertTrue(rdf.contains("<" + iri + ">"), "RDF must retain extension type: " + iri);
+        }
+    }
+
     private final CredentialBuilder builder;
     private final BadgeIssuer issuer;
     private final BadgeAchievement achievement;
