@@ -24,7 +24,7 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.brody-0125:signet-core:v0.1.3")
+    implementation("com.github.brody-0125:signet-core:v0.1.4")
 }
 ```
 
@@ -36,7 +36,7 @@ repositories {
     maven { url 'https://jitpack.io' }
 }
 dependencies {
-    implementation 'com.github.brody-0125:signet-core:v0.1.3'
+    implementation 'com.github.brody-0125:signet-core:v0.1.4'
 }
 ```
 
@@ -148,6 +148,9 @@ The `CachedDocumentLoader` ships with pre-bundled contexts to avoid network fetc
 
 - `https://www.w3.org/ns/credentials/v2` — W3C VC Data Model 2.0
 - `https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json` — Open Badges 3.0
+- `https://purl.imsglobal.org/spec/ob/v3p0/extensions.json` — schema validator, revocation and refresh types
+
+Credentials built from version 0.1.4 include the extension context so those types survive RDF conversion and strict JSON-LD verification. Existing signed credentials are not rewritten: adding a context changes the signed data and requires a newly signed credential. The loader retains the earlier contexts for existing documents.
 
 ## Requirements
 

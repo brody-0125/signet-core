@@ -13,6 +13,10 @@ Open Badges Specification
 Copyright (c) 2025 1EdTech Consortium, Inc. All Rights Reserved.
 https://www.imsglobal.org/spec/ob/v3p0
 
+Bundled unmodified Open Badges JSON-LD extension context:
+https://purl.imsglobal.org/spec/ob/v3p0/extensions.json
+It defines schema-validator, revocation-list and refresh-service vocabulary.
+
 Use of this specification to develop products or services is governed by the
 1EdTech Specification Document License:
 https://www.1edtech.org/standards/specification-license

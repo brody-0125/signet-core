@@ -117,7 +117,8 @@ public class CredentialBuilder {
         String credentialUrl = trimmedBaseUrl + "/credentials/" + request.credentialId();
 
         Map<String, Object> credential = new LinkedHashMap<>();
-        credential.put("@context", List.of(OpenBadgesContext.VC_CONTEXT, OpenBadgesContext.OB3_CONTEXT));
+        credential.put("@context", List.of(OpenBadgesContext.VC_CONTEXT, OpenBadgesContext.OB3_CONTEXT,
+                OpenBadgesContext.OB3_EXTENSIONS_CONTEXT));
         credential.put("id", credentialUrl);
         credential.put("type", List.of("VerifiableCredential", "OpenBadgeCredential"));
         credential.put("issuer", buildEmbeddedIssuerProfile(request.issuer(), trimmedBaseUrl));

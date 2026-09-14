@@ -25,7 +25,7 @@ tasks.register("verifyPublicationNotices") {
 tasks.named("check") { dependsOn("verifyPublicationNotices") }
 
 group = "work.brodykim"
-version = "0.1.3"
+version = "0.1.4"
 
 repositories {
     mavenCentral()

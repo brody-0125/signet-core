@@ -19,6 +19,9 @@ public final class OpenBadgesContext {
      */
     public static final String OB3_CONTEXT = "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json";
 
+    /** Defines the schema validator, revocation list and refresh service types. */
+    public static final String OB3_EXTENSIONS_CONTEXT = "https://purl.imsglobal.org/spec/ob/v3p0/extensions.json";
+
     /**
      * OB 3.0 AchievementCredential JSON Schema URL for credentialSchema validation.
      */
